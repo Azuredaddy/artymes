@@ -22,7 +22,7 @@ function Test-Command($cmd) { return [bool](Get-Command $cmd -ErrorAction Silent
 
 Write-Header
 
-# -- Ensure C:\Temp exists (avoids pip issues with special chars in username) --
+# -- Safe temp dir (avoids pip failures with special chars in username) --------
 if (-not (Test-Path "C:\Temp")) { New-Item -ItemType Directory -Force -Path "C:\Temp" | Out-Null }
 $env:TEMP = "C:\Temp"
 $env:TMP  = "C:\Temp"
@@ -48,7 +48,7 @@ if (-not (Test-Command "ffmpeg")) {
     $ffmpegOk = $false
 
     try {
-        $result = winget install Gyan.FFmpeg --scope user --silent --accept-package-agreements --accept-source-agreements 2>&1
+        winget install Gyan.FFmpeg --scope user --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         if (Test-Command "ffmpeg") { $ffmpegOk = $true; Write-OK "ffmpeg installed." }
     } catch {}
@@ -64,11 +64,9 @@ if (-not (Test-Command "ffmpeg")) {
             $currentPath = [System.Environment]::GetEnvironmentVariable("Path","User")
             [System.Environment]::SetEnvironmentVariable("Path", "$currentPath;$ffmpegBin", "User")
             $env:Path += ";$ffmpegBin"
-            $ffmpegOk = $true
             Write-OK "ffmpeg installed to $ffmpegBin"
         } catch {
             Write-Fail "ffmpeg install failed: $_"
-            Write-Fail "ARTY will still work but voice transcription may not function."
         }
     }
 } else {
@@ -104,44 +102,34 @@ Write-OK "Virtual environment created."
 
 # -- Install dependencies -----------------------------------------------------
 Write-Step "Installing ARTY dependencies (this takes a few minutes)..."
-$pipResult = & "$InstallDir\venv\Scripts\pip.exe" install -r "$InstallDir\requirements.txt" --quiet 2>&1
+$pipOut = & "$InstallDir\venv\Scripts\pip.exe" install -r "$InstallDir\requirements.txt" --quiet 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Fail "Dependency install had errors:"
-    $pipResult | ForEach-Object { Write-Fail $_ }
-    Write-Fail "ARTY may not work correctly. Check errors above."
-} else {
-    Write-OK "Dependencies installed."
+    Write-Fail "Dependency install failed:"
+    $pipOut | ForEach-Object { Write-Fail "  $_" }
+    exit 1
 }
+Write-OK "Dependencies installed."
 
-# -- API Key Setup ------------------------------------------------------------
+# -- Write configuration ------------------------------------------------------
 Write-Step "Writing configuration..."
-$anthropicKey  = "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"
-$elevenKey     = "sk_dd52d94163e1e4be0a044e1640899a72ae4e61a0bf1a6e8e"
-$voiceId       = "UgBBYS2sOqTuMpoF3BR0"
-
-Write-Host ""
-$openaiKey = Read-Host "  Enter your OpenAI API key (for voice transcription)"
-Write-Host ""
-
 $envContent = @"
-ANTHROPIC_API_KEY=$anthropicKey
-ELEVENLABS_API_KEY=$elevenKey
-OPENAI_API_KEY=$openaiKey
-ARTY_VOICE_ID=$voiceId
+ANTHROPIC_API_KEY=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
+ELEVENLABS_API_KEY=sk_dd52d94163e1e4be0a044e1640899a72ae4e61a0bf1a6e8e
+ARTY_VOICE_ID=UgBBYS2sOqTuMpoF3BR0
 PUSH_TO_TALK=false
 WAKE_WORD=hey arty
 MEMORY_DB_PATH=./data/arty_memory.db
 CHROMA_PATH=./data/chroma
 "@
 $envContent | Set-Content "$InstallDir\.env" -Encoding UTF8
-Write-OK ".env written with your API keys."
+Write-OK "Configuration written."
 
 # -- Desktop shortcut ---------------------------------------------------------
 Write-Step "Creating desktop shortcut..."
 $launchScript = "@echo off`r`ncd /d `"$InstallDir`"`r`ncall venv\Scripts\activate.bat`r`npython main.py`r`npause"
 $launchScript | Out-File -FilePath "$InstallDir\Run ARTY.bat" -Encoding ASCII
 
-# Support both standard and OneDrive-synced Desktop paths (AzureAD accounts)
+# Works for standard and OneDrive-synced desktops (AzureAD accounts)
 $desktopPath = [System.Environment]::GetFolderPath("Desktop")
 if (-not (Test-Path $desktopPath)) {
     $desktopPath = "$env:USERPROFILE\Desktop"
@@ -154,7 +142,7 @@ $Shortcut.TargetPath = "$InstallDir\Run ARTY.bat"
 $Shortcut.IconLocation = "shell32.dll,13"
 $Shortcut.Description = "Launch ARTY AI Employee"
 $Shortcut.Save()
-Write-OK "Desktop shortcut created at $desktopPath\ARTY.lnk"
+Write-OK "Desktop shortcut created."
 
 # -- Done ---------------------------------------------------------------------
 Write-Host ""

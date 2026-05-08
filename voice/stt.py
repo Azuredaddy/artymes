@@ -3,13 +3,14 @@ import sounddevice as sd
 import soundfile as sf
 import tempfile
 import os
-from openai import OpenAI
-from config import OPENAI_API_KEY, WAKE_WORD, PUSH_TO_TALK
+from faster_whisper import WhisperModel
+from config import WHISPER_MODEL, WAKE_WORD, PUSH_TO_TALK
 
 
 class ArtyEars:
     def __init__(self):
-        self.client = OpenAI(api_key=OPENAI_API_KEY)
+        print("Loading Whisper model...")
+        self.model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
         self.sample_rate = 16000
         self.silence_threshold = 0.01
         self.silence_duration = 1.5
@@ -52,13 +53,8 @@ class ArtyEars:
             tmp_path = f.name
         try:
             sf.write(tmp_path, audio, self.sample_rate)
-            with open(tmp_path, "rb") as audio_file:
-                result = self.client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    language="en"
-                )
-            return result.text.strip()
+            segments, _ = self.model.transcribe(tmp_path, language="en")
+            return " ".join(seg.text for seg in segments).strip()
         finally:
             os.unlink(tmp_path)
 
