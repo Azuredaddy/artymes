@@ -108,22 +108,10 @@ Write-Step "Installing ARTY dependencies..."
 Write-OK "Dependencies installed."
 
 # -- API Key Setup ------------------------------------------------------------
-Write-Host ""
-Write-Host "  +------------------------------------------+" -ForegroundColor Cyan
-Write-Host "  |           ARTY API Key Setup             |" -ForegroundColor Cyan
-Write-Host "  +------------------------------------------+" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "  Enter your API keys below." -ForegroundColor White
-Write-Host "  Press Enter to skip any key (you can edit .env later)." -ForegroundColor DarkGray
-Write-Host ""
-
-$anthropicKey  = Read-Host "  Anthropic API Key"
-$elevenKey     = Read-Host "  ElevenLabs API Key"
-$voiceId       = Read-Host "  ElevenLabs Voice ID"
-
-if (-not $anthropicKey)  { $anthropicKey  = "YOUR_ANTHROPIC_KEY_HERE" }
-if (-not $elevenKey)     { $elevenKey     = "YOUR_ELEVENLABS_KEY_HERE" }
-if (-not $voiceId)       { $voiceId       = "YOUR_VOICE_ID_HERE" }
+Write-Step "Writing configuration..."
+$anthropicKey  = "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"
+$elevenKey     = "sk_dd52d94163e1e4be0a044e1640899a72ae4e61a0bf1a6e8e"
+$voiceId       = "UgBBYS2sOqTuMpoF3BR0"
 
 $envContent = @"
 ANTHROPIC_API_KEY=$anthropicKey
