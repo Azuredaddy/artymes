@@ -1,0 +1,35 @@
+name: Build & Release ARTY Installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Zip release package
+        run: |
+          zip -r artymes_windows.zip . \
+            --exclude "*.git*" \
+            --exclude "installer/*" \
+            --exclude ".github/*"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artymes_windows.zip
+          body: |
+            ## ARTY AI Employee - Windows Install
+
+            **One-command install (PowerShell as Admin):**
+            ```powershell
+            iwr -useb https://raw.githubusercontent.com/${{ github.repository }}/main/installer/install.ps1 | iex
+            ```
+
+            Or download `artymes_windows.zip` and run `setup_windows.bat`
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
