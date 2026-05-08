@@ -10,7 +10,9 @@ from config import WHISPER_MODEL, WAKE_WORD, PUSH_TO_TALK
 class ArtyEars:
     def __init__(self):
         print("Loading Whisper model...")
-        self.model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
+        _model_dir = os.path.join(os.path.dirname(__file__), "..", "data", "whisper_model")
+        os.makedirs(_model_dir, exist_ok=True)
+        self.model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8", download_root=_model_dir)
         self.sample_rate = 16000
         self.silence_threshold = 0.01
         self.silence_duration = 1.5

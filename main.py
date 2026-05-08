@@ -77,6 +77,17 @@ def run():
     print_banner()
 
     console.print("[dim]Initialising ARTY brain...[/dim]")
+    from config import ANTHROPIC_API_KEY
+    if not ANTHROPIC_API_KEY or not ANTHROPIC_API_KEY.startswith("sk-"):
+        console.print(Panel(
+            "  [red]ANTHROPIC_API_KEY is missing.[/red]\n\n"
+            "  Open [cyan].env[/cyan] in your Artymes folder and paste your key:\n"
+            "  Get it from [cyan]console.anthropic.com[/cyan]",
+            title="Setup Required", style="red"
+        ))
+        input("\nPress Enter to exit.")
+        return
+
     from brain.claude_client import ArtyBrain
     from voice.stt import ArtyEars
     from voice.tts import ArtyVoice

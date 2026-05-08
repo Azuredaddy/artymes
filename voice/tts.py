@@ -7,20 +7,39 @@ from elevenlabs import ElevenLabs, VoiceSettings
 from config import ELEVENLABS_API_KEY, ARTY_VOICE_ID
 
 
+def _pyttsx3_speak(text: str):
+    try:
+        import pyttsx3
+        engine = pyttsx3.init()
+        engine.setProperty("rate", 165)
+        engine.say(text)
+        engine.runAndWait()
+        engine.stop()
+    except Exception as e:
+        print(f"  [Local TTS error]: {e}")
+        print(f"  [ARTY would say]: {text}")
+
+
 class ArtyVoice:
     def __init__(self):
-        self.client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
-        self.voice_id = ARTY_VOICE_ID
-        self.voice_settings = VoiceSettings(
-            stability=0.45,         # slightly varied = more natural
-            similarity_boost=0.85,
-            style=0.35,             # adds expressiveness
-            use_speaker_boost=True
-        )
+        self._use_elevenlabs = bool(ELEVENLABS_API_KEY and ARTY_VOICE_ID)
+        if self._use_elevenlabs:
+            self.client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+            self.voice_id = ARTY_VOICE_ID
+            self.voice_settings = VoiceSettings(
+                stability=0.45,
+                similarity_boost=0.85,
+                style=0.35,
+                use_speaker_boost=True
+            )
+        else:
+            print("  [TTS] No ElevenLabs keys — using local voice.")
 
     def speak(self, text: str):
-        """Convert text to speech and play it."""
         if not text.strip():
+            return
+        if not self._use_elevenlabs:
+            _pyttsx3_speak(text)
             return
         try:
             audio_bytes = self.client.text_to_speech.convert(
@@ -37,8 +56,8 @@ class ArtyVoice:
             sd.play(data, samplerate)
             sd.wait()
         except Exception as e:
-            print(f"  [TTS error]: {e}")
-            print(f"  [ARTY would say]: {text}")
+            print(f"  [ElevenLabs error — falling back to local voice]: {e}")
+            _pyttsx3_speak(text)
 
     def speak_async(self, text: str):
         """Speak without blocking — use for non-critical output."""

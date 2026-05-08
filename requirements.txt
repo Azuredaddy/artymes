@@ -8,3 +8,4 @@ sounddevice>=0.4.6
 soundfile>=0.12.1
 colorama>=0.4.6
 rich>=13.7.0
+pyttsx3>=2.90

@@ -3,9 +3,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
-ARTY_VOICE_ID = os.getenv("ARTY_VOICE_ID", "")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip().strip('"').strip("'")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "").strip().strip('"').strip("'")
+ARTY_VOICE_ID = os.getenv("ARTY_VOICE_ID", "").strip().strip('"').strip("'")
 WAKE_WORD = os.getenv("WAKE_WORD", "hey arty")
 PUSH_TO_TALK = os.getenv("PUSH_TO_TALK", "false").lower() == "true"
 MEMORY_DB_PATH = os.getenv("MEMORY_DB_PATH", "./data/arty_memory.db")
