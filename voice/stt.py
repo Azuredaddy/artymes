@@ -1,25 +1,23 @@
-import whisper
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
 import tempfile
 import os
-from config import WHISPER_MODEL, WAKE_WORD, PUSH_TO_TALK
+from openai import OpenAI
+from config import OPENAI_API_KEY, WAKE_WORD, PUSH_TO_TALK
 
 
 class ArtyEars:
     def __init__(self):
-        print("Loading Whisper model...")
-        self.model = whisper.load_model(WHISPER_MODEL)
+        self.client = OpenAI(api_key=OPENAI_API_KEY)
         self.sample_rate = 16000
         self.silence_threshold = 0.01
-        self.silence_duration = 1.5  # seconds of silence to stop recording
-        self.max_duration = 30       # max recording seconds
+        self.silence_duration = 1.5
+        self.max_duration = 30
 
     def record_until_silence(self) -> np.ndarray:
-        """Record audio from mic, stopping on silence."""
         print("  [Listening...]")
-        chunk_duration = 0.1  # seconds per chunk
+        chunk_duration = 0.1
         chunk_samples = int(self.sample_rate * chunk_duration)
         silence_chunks = int(self.silence_duration / chunk_duration)
 
@@ -50,17 +48,21 @@ class ArtyEars:
     def transcribe(self, audio: np.ndarray) -> str:
         if len(audio) == 0:
             return ""
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir="C:\\Temp") as f:
             tmp_path = f.name
         try:
             sf.write(tmp_path, audio, self.sample_rate)
-            result = self.model.transcribe(tmp_path, language="en", fp16=False)
-            return result["text"].strip()
+            with open(tmp_path, "rb") as audio_file:
+                result = self.client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    language="en"
+                )
+            return result.text.strip()
         finally:
             os.unlink(tmp_path)
 
     def listen(self) -> str:
-        """Full listen cycle: record then transcribe."""
         audio = self.record_until_silence()
         if len(audio) == 0:
             return ""
@@ -70,7 +72,6 @@ class ArtyEars:
         return text
 
     def wait_for_wake_word(self) -> bool:
-        """Listen for wake word, return True when heard."""
         print(f"  [Waiting for wake word: '{WAKE_WORD}']")
         audio = self.record_until_silence()
         text = self.transcribe(audio).lower()

@@ -22,12 +22,17 @@ function Test-Command($cmd) { return [bool](Get-Command $cmd -ErrorAction Silent
 
 Write-Header
 
+# -- Ensure C:\Temp exists (avoids pip issues with special chars in username) --
+if (-not (Test-Path "C:\Temp")) { New-Item -ItemType Directory -Force -Path "C:\Temp" | Out-Null }
+$env:TEMP = "C:\Temp"
+$env:TMP  = "C:\Temp"
+
 # -- Check / Install Python ---------------------------------------------------
 Write-Step "Checking Python..."
 if (-not (Test-Command "python")) {
     Write-Step "Python not found. Installing Python 3.11..."
     $pythonUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
-    $pythonInstaller = "$env:TEMP\python_installer.exe"
+    $pythonInstaller = "C:\Temp\python_installer.exe"
     Invoke-WebRequest -Uri $pythonUrl -OutFile $pythonInstaller
     Start-Process -FilePath $pythonInstaller -ArgumentList "/quiet InstallAllUsers=0 PrependPath=1" -Wait
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
@@ -42,18 +47,16 @@ if (-not (Test-Command "ffmpeg")) {
     Write-Step "Installing ffmpeg..."
     $ffmpegOk = $false
 
-    # Try winget user scope first
     try {
         $result = winget install Gyan.FFmpeg --scope user --silent --accept-package-agreements --accept-source-agreements 2>&1
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         if (Test-Command "ffmpeg") { $ffmpegOk = $true; Write-OK "ffmpeg installed." }
     } catch {}
 
-    # Try manual download if winget failed
     if (-not $ffmpegOk) {
         Write-Step "Winget failed - downloading ffmpeg directly..."
         try {
-            $ffmpegZip = "$env:TEMP\ffmpeg.zip"
+            $ffmpegZip = "C:\Temp\ffmpeg.zip"
             $ffmpegDir = "$env:USERPROFILE\ffmpeg"
             Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile $ffmpegZip
             Expand-Archive -Path $ffmpegZip -DestinationPath $ffmpegDir -Force
@@ -100,12 +103,15 @@ python -m venv venv
 Write-OK "Virtual environment created."
 
 # -- Install dependencies -----------------------------------------------------
-Write-Step "Installing PyTorch (CPU) - this takes a few minutes..."
-& "$InstallDir\venv\Scripts\pip.exe" install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --quiet
-
-Write-Step "Installing ARTY dependencies..."
-& "$InstallDir\venv\Scripts\pip.exe" install -r "$InstallDir\requirements.txt" --quiet
-Write-OK "Dependencies installed."
+Write-Step "Installing ARTY dependencies (this takes a few minutes)..."
+$pipResult = & "$InstallDir\venv\Scripts\pip.exe" install -r "$InstallDir\requirements.txt" --quiet 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Fail "Dependency install had errors:"
+    $pipResult | ForEach-Object { Write-Fail $_ }
+    Write-Fail "ARTY may not work correctly. Check errors above."
+} else {
+    Write-OK "Dependencies installed."
+}
 
 # -- API Key Setup ------------------------------------------------------------
 Write-Step "Writing configuration..."
@@ -113,9 +119,14 @@ $anthropicKey  = "sk-ant-api03-RQiMLh8QC3wkdAH27hGwjYyTKsZXwpoG90XTyhqBXdQ1fTeCZ
 $elevenKey     = "sk_dd52d94163e1e4be0a044e1640899a72ae4e61a0bf1a6e8e"
 $voiceId       = "UgBBYS2sOqTuMpoF3BR0"
 
+Write-Host ""
+$openaiKey = Read-Host "  Enter your OpenAI API key (for voice transcription)"
+Write-Host ""
+
 $envContent = @"
 ANTHROPIC_API_KEY=$anthropicKey
 ELEVENLABS_API_KEY=$elevenKey
+OPENAI_API_KEY=$openaiKey
 ARTY_VOICE_ID=$voiceId
 PUSH_TO_TALK=false
 WAKE_WORD=hey arty
@@ -130,13 +141,20 @@ Write-Step "Creating desktop shortcut..."
 $launchScript = "@echo off`r`ncd /d `"$InstallDir`"`r`ncall venv\Scripts\activate.bat`r`npython main.py`r`npause"
 $launchScript | Out-File -FilePath "$InstallDir\Run ARTY.bat" -Encoding ASCII
 
+# Support both standard and OneDrive-synced Desktop paths (AzureAD accounts)
+$desktopPath = [System.Environment]::GetFolderPath("Desktop")
+if (-not (Test-Path $desktopPath)) {
+    $desktopPath = "$env:USERPROFILE\Desktop"
+    New-Item -ItemType Directory -Force -Path $desktopPath | Out-Null
+}
+
 $WshShell = New-Object -ComObject WScript.Shell
-$Shortcut = $WshShell.CreateShortcut("$env:USERPROFILE\Desktop\ARTY.lnk")
+$Shortcut = $WshShell.CreateShortcut("$desktopPath\ARTY.lnk")
 $Shortcut.TargetPath = "$InstallDir\Run ARTY.bat"
 $Shortcut.IconLocation = "shell32.dll,13"
 $Shortcut.Description = "Launch ARTY AI Employee"
 $Shortcut.Save()
-Write-OK "Desktop shortcut created."
+Write-OK "Desktop shortcut created at $desktopPath\ARTY.lnk"
 
 # -- Done ---------------------------------------------------------------------
 Write-Host ""
