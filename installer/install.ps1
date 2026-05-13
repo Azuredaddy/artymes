@@ -84,7 +84,7 @@ Write-Step "Downloading Artymes files..."
 $RepoBase = "https://raw.githubusercontent.com/Azuredaddy/artymes/main"
 $files = @(
     "main.py", "config.py", "requirements.txt", ".env.example",
-    "brain/__init__.py", "brain/claude_client.py", "brain/memory.py", "brain/personality.py",
+    "brain/__init__.py", "brain/claude_client.py", "brain/memory.py", "brain/personality.py", "brain/context.py",
     "voice/__init__.py", "voice/stt.py", "voice/tts.py"
 )
 foreach ($file in $files) {
@@ -102,10 +102,13 @@ Write-OK "Virtual environment created."
 
 # -- Install dependencies -----------------------------------------------------
 Write-Step "Installing ARTY dependencies (this takes a few minutes)..."
-$pipOut = & "$InstallDir\venv\Scripts\pip.exe" install -r "$InstallDir\requirements.txt" --quiet 2>&1
+$pipOut = & "$InstallDir\venv\Scripts\pip.exe" install -r "$InstallDir\requirements.txt" 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Fail "Dependency install failed:"
-    $pipOut | ForEach-Object { Write-Fail "  $_" }
+    Write-Fail "Dependency install failed. Error details:"
+    $pipOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    Write-Host ""
+    Write-Fail "If you see 'No matching distribution' errors, Python 3.13 may not be supported by a package yet."
+    Write-Fail "Try installing Python 3.11 from python.org and re-running this installer."
     exit 1
 }
 Write-OK "Dependencies installed."
