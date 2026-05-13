@@ -3,7 +3,7 @@
 
 $ErrorActionPreference = "Stop"
 $ArtyVersion = "1.4.2"
-$InstallDir = "C:\Users\AzureAD_WilliamBridle_$\artymes"
+$InstallDir = "C:\Artymes"
 
 function Write-Header {
     Clear-Host
