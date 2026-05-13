@@ -84,6 +84,7 @@ Write-Step "Downloading Artymes files..."
 $RepoBase = "https://raw.githubusercontent.com/Azuredaddy/artymes/main"
 $files = @(
     "main.py", "config.py", "requirements.txt", ".env.example",
+    "run_arty.bat", "setup_windows.bat",
     "brain/__init__.py", "brain/claude_client.py", "brain/memory.py", "brain/personality.py", "brain/context.py",
     "voice/__init__.py", "voice/stt.py", "voice/tts.py"
 )
