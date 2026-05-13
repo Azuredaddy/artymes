@@ -2,7 +2,7 @@
 # Run with: iwr -useb https://raw.githubusercontent.com/Azuredaddy/artymes/main/installer/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
-$ArtyVersion = "1.0.0"
+$ArtyVersion = "1.4.2"
 $InstallDir = "$env:USERPROFILE\Artymes"
 
 function Write-Header {
@@ -103,13 +103,18 @@ Write-OK "Virtual environment created."
 
 # -- Install dependencies -----------------------------------------------------
 Write-Step "Installing ARTY dependencies (this takes a few minutes)..."
-$pipOut = & "$InstallDir\venv\Scripts\pip.exe" install -r "$InstallDir\requirements.txt" 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Fail "Dependency install failed. Error details:"
-    $pipOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+Write-Step "Upgrading pip first..."
+$ErrorActionPreference = "Continue"
+& "$InstallDir\venv\Scripts\python.exe" -m pip install --upgrade pip setuptools wheel
+Write-Step "Installing packages..."
+& "$InstallDir\venv\Scripts\pip.exe" install -r "$InstallDir\requirements.txt"
+$pipExit = $LASTEXITCODE
+$ErrorActionPreference = "Stop"
+if ($pipExit -ne 0) {
     Write-Host ""
-    Write-Fail "If you see 'No matching distribution' errors, Python 3.13 may not be supported by a package yet."
-    Write-Fail "Try installing Python 3.11 from python.org and re-running this installer."
+    Write-Fail "Dependency install failed — see errors above."
+    Write-Fail "Python 3.13 may not be supported by faster-whisper or chromadb yet."
+    Write-Fail "Fix: install Python 3.11 from python.org then re-run this installer."
     exit 1
 }
 Write-OK "Dependencies installed."
