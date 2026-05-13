@@ -3,6 +3,7 @@ import random
 from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, CONVERSATION_WINDOW
 from brain.personality import ARTY_SYSTEM_PROMPT, ARTY_UNCERTAINTY_PHRASES, ARTY_LEARNING_PHRASES
 from brain.memory import ArtyMemory
+from brain.context import build_live_context
 
 
 class ArtyBrain:
@@ -25,6 +26,7 @@ class ArtyBrain:
         recent_messages = self.memory.get_recent_messages(CONVERSATION_WINDOW)
 
         system = ARTY_SYSTEM_PROMPT
+        system += f"\n\n{build_live_context()}"
         if knowledge_context:
             system += f"\n\n{knowledge_context}"
 
