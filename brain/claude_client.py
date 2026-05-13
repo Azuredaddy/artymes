@@ -3,7 +3,13 @@ import random
 from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, CONVERSATION_WINDOW
 from brain.personality import ARTY_SYSTEM_PROMPT, ARTY_UNCERTAINTY_PHRASES, ARTY_LEARNING_PHRASES
 from brain.memory import ArtyMemory
-from brain.context import build_live_context
+try:
+    from brain.context import build_live_context
+except Exception:
+    def build_live_context():
+        from datetime import datetime
+        now = datetime.now()
+        return f"## Live Awareness\nCurrent date: {now.strftime('%A, %d %B %Y')}\nCurrent time: {now.strftime('%H:%M')}"
 
 
 class ArtyBrain:

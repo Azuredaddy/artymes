@@ -1,9 +1,9 @@
-import requests
 from datetime import datetime
 
 
 def _get_weather() -> str:
     try:
+        import requests
         r = requests.get("https://wttr.in/?format=3", timeout=4)
         if r.status_code == 200:
             return r.text.strip()
@@ -13,17 +13,15 @@ def _get_weather() -> str:
 
 
 def _get_news_headlines() -> str:
-    """Fetch top headlines via wttr-style free endpoint (no key needed)."""
     try:
-        # Uses BBC RSS — no API key, lightweight
+        import requests
+        import re
         r = requests.get(
             "https://feeds.bbci.co.uk/news/rss.xml", timeout=5,
             headers={"User-Agent": "Mozilla/5.0"}
         )
         if r.status_code == 200:
-            import re
             titles = re.findall(r"<title><!\[CDATA\[(.*?)\]\]></title>", r.text)
-            # Skip first (feed title) and grab up to 5 headlines
             headlines = [t for t in titles[1:6] if t]
             if headlines:
                 return "; ".join(headlines)
