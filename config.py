@@ -1,6 +1,8 @@
 import os
 from dotenv import load_dotenv
 
+ARTY_VERSION = "1.4.2"
+
 # Always load .env from the same folder as this file, regardless of working directory
 _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 load_dotenv(dotenv_path=_env_path)
@@ -18,3 +20,5 @@ WHISPER_MODEL = "base"
 
 CONVERSATION_WINDOW = 20
 UNCERTAINTY_THRESHOLD = 0.4
+
+GITHUB_VERSION_URL = "https://raw.githubusercontent.com/Azuredaddy/artymes/main/version.txt"

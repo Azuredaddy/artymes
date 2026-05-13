@@ -6,6 +6,7 @@ Phase 1: Core Brain (voice I/O + Claude + memory)
 import os
 import sys
 import uuid
+import requests
 from datetime import datetime
 from rich.console import Console
 from rich.panel import Panel
@@ -15,28 +16,44 @@ from colorama import init as colorama_init
 colorama_init()
 console = Console()
 
-BANNER = """
+COMMANDS = {
+    "/help":    "Show this help",
+    "/tasks":   "Show open tasks ARTY has flagged",
+    "/train":   "Enter training mode — teach ARTY something",
+    "/type":    "Type instead of using the mic this session",
+    "/mic":     "Switch back to mic input",
+    "/version": "Show ARTY version and check for updates",
+    "/quit":    "Shut down ARTY",
+}
+
+
+def make_banner(version: str) -> str:
+    return f"""
  █████╗ ██████╗ ████████╗██╗   ██╗███╗   ███╗███████╗███████╗
 ██╔══██╗██╔══██╗╚══██╔══╝╚██╗ ██╔╝████╗ ████║██╔════╝██╔════╝
 ███████║██████╔╝   ██║    ╚████╔╝ ██╔████╔██║█████╗  ███████╗
 ██╔══██║██╔══██╗   ██║     ╚██╔╝  ██║╚██╔╝██║██╔══╝  ╚════██║
 ██║  ██║██║  ██║   ██║      ██║   ██║ ╚═╝ ██║███████╗███████║
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝     ╚═╝╚══════╝╚══════╝
-           Project Artymes — ARTY AI Employee v1.0
+        Project Artymes — ARTY AI Employee  v{version}
 """
 
-COMMANDS = {
-    "/help":   "Show this help",
-    "/tasks":  "Show open tasks ARTY has flagged",
-    "/train":  "Enter training mode — teach ARTY something",
-    "/type":   "Type instead of using the mic this session",
-    "/mic":    "Switch back to mic input",
-    "/quit":   "Shut down ARTY",
-}
+
+def check_for_update(current_version: str, url: str) -> str | None:
+    """Return latest version string if newer than current, else None."""
+    try:
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200:
+            latest = r.text.strip()
+            if latest != current_version:
+                return latest
+    except Exception:
+        pass
+    return None
 
 
-def print_banner():
-    console.print(Panel(BANNER, style="bold cyan", expand=False))
+def print_banner(version: str):
+    console.print(Panel(make_banner(version), style="bold cyan", expand=False))
     console.print()
 
 
@@ -45,6 +62,19 @@ def print_help():
         "\n".join(f"  [cyan]{k}[/cyan]  {v}" for k, v in COMMANDS.items()),
         title="ARTY Commands", style="dim"
     ))
+
+
+def show_version(version: str, update_url: str, voice):
+    console.print(f"\n  [green]ARTY:[/green] I'm on version [cyan]{version}[/cyan]. Checking for updates...")
+    voice.speak(f"I'm on version {version}. Checking for updates.")
+    latest = check_for_update(version, update_url)
+    if latest:
+        msg = f"There's a newer version {latest} available. Run the installer to update."
+        console.print(f"  [yellow]Update available: v{latest}[/yellow]")
+    else:
+        msg = "I'm fully up to date. Nice."
+        console.print("  [green]Up to date.[/green]")
+    voice.speak(msg)
 
 
 def training_mode(brain, voice):
@@ -74,9 +104,16 @@ def show_tasks(brain, voice):
 
 
 def run():
-    print_banner()
+    from config import ARTY_VERSION, GITHUB_VERSION_URL
+    print_banner(ARTY_VERSION)
 
     console.print("[dim]Initialising ARTY brain...[/dim]")
+
+    # Check for updates silently at startup
+    latest = check_for_update(ARTY_VERSION, GITHUB_VERSION_URL)
+    if latest:
+        console.print(f"  [yellow]Update available: v{latest} — run the installer to upgrade.[/yellow]\n")
+
     from config import ANTHROPIC_API_KEY
     if not ANTHROPIC_API_KEY or not ANTHROPIC_API_KEY.startswith("sk-"):
         console.print(Panel(
@@ -135,6 +172,8 @@ def run():
                     show_tasks(brain, voice)
                 elif cmd == "/train":
                     training_mode(brain, voice)
+                elif cmd == "/version":
+                    show_version(ARTY_VERSION, GITHUB_VERSION_URL, voice)
                 elif cmd == "/type":
                     use_mic = False
                     console.print("  [dim]Switched to keyboard input.[/dim]")

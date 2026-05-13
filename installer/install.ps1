@@ -83,7 +83,7 @@ Write-OK "Directory ready."
 Write-Step "Downloading Artymes files..."
 $RepoBase = "https://raw.githubusercontent.com/Azuredaddy/artymes/main"
 $files = @(
-    "main.py", "config.py", "requirements.txt", ".env.example",
+    "main.py", "config.py", "requirements.txt", ".env.example", "version.txt",
     "run_arty.bat", "setup_windows.bat",
     "brain/__init__.py", "brain/claude_client.py", "brain/memory.py", "brain/personality.py", "brain/context.py",
     "voice/__init__.py", "voice/stt.py", "voice/tts.py"
@@ -119,12 +119,60 @@ if ($pipExit -ne 0) {
 }
 Write-OK "Dependencies installed."
 
+# -- Collect API keys ---------------------------------------------------------
+Write-Host ""
+Write-Host "  +------------------------------------------+" -ForegroundColor Yellow
+Write-Host "  |           API Keys Required              |" -ForegroundColor Yellow
+Write-Host "  +------------------------------------------+" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  You need two API keys to run ARTY:" -ForegroundColor White
+Write-Host "    Anthropic: https://console.anthropic.com/settings/keys" -ForegroundColor Cyan
+Write-Host "    ElevenLabs: your ElevenLabs account > Profile > API Key" -ForegroundColor Cyan
+Write-Host ""
+
+# Check if .env already exists with valid keys (upgrade scenario)
+$existingAnthropicKey = ""
+$existingElevenLabsKey = ""
+$existingVoiceId = ""
+$envFile = "$InstallDir\.env"
+if (Test-Path $envFile) {
+    $existingAnthropicKey = (Get-Content $envFile | Where-Object { $_ -match "^ANTHROPIC_API_KEY=" }) -replace "^ANTHROPIC_API_KEY=", ""
+    $existingElevenLabsKey = (Get-Content $envFile | Where-Object { $_ -match "^ELEVENLABS_API_KEY=" }) -replace "^ELEVENLABS_API_KEY=", ""
+    $existingVoiceId = (Get-Content $envFile | Where-Object { $_ -match "^ARTY_VOICE_ID=" }) -replace "^ARTY_VOICE_ID=", ""
+}
+
+# Anthropic key
+if ($existingAnthropicKey -and $existingAnthropicKey.StartsWith("sk-")) {
+    Write-Host "  Anthropic key already set. Press Enter to keep it, or paste a new one:" -ForegroundColor DarkGray
+    $inputAnthropicKey = Read-Host "  Anthropic API Key"
+    if (-not $inputAnthropicKey) { $inputAnthropicKey = $existingAnthropicKey }
+} else {
+    do {
+        $inputAnthropicKey = Read-Host "  Anthropic API Key (starts with sk-ant-)"
+    } while (-not $inputAnthropicKey.StartsWith("sk-"))
+}
+
+# ElevenLabs key
+if ($existingElevenLabsKey -and $existingElevenLabsKey.Length -gt 10) {
+    Write-Host "  ElevenLabs key already set. Press Enter to keep it, or paste a new one:" -ForegroundColor DarkGray
+    $inputElevenLabsKey = Read-Host "  ElevenLabs API Key"
+    if (-not $inputElevenLabsKey) { $inputElevenLabsKey = $existingElevenLabsKey }
+} else {
+    $inputElevenLabsKey = Read-Host "  ElevenLabs API Key"
+}
+
+# Voice ID
+$defaultVoiceId = if ($existingVoiceId) { $existingVoiceId } else { "UgBBYS2sOqTuMpoF3BR0" }
+Write-Host "  ARTY Voice ID (press Enter to keep default: $defaultVoiceId):" -ForegroundColor DarkGray
+$inputVoiceId = Read-Host "  ElevenLabs Voice ID"
+if (-not $inputVoiceId) { $inputVoiceId = $defaultVoiceId }
+
 # -- Write configuration ------------------------------------------------------
 Write-Step "Writing configuration..."
 $envContent = @"
-ANTHROPIC_API_KEY=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
-ELEVENLABS_API_KEY=sk_dd52d94163e1e4be0a044e1640899a72ae4e61a0bf1a6e8e
-ARTY_VOICE_ID=UgBBYS2sOqTuMpoF3BR0
+ANTHROPIC_API_KEY=$inputAnthropicKey
+ELEVENLABS_API_KEY=$inputElevenLabsKey
+ARTY_VOICE_ID=$inputVoiceId
 PUSH_TO_TALK=false
 WAKE_WORD=hey arty
 MEMORY_DB_PATH=./data/arty_memory.db
@@ -138,7 +186,6 @@ Write-Step "Creating desktop shortcut..."
 $launchScript = "@echo off`r`ncd /d `"$InstallDir`"`r`ncall venv\Scripts\activate.bat`r`npython main.py`r`npause"
 $launchScript | Out-File -FilePath "$InstallDir\Run ARTY.bat" -Encoding ASCII
 
-# Works for standard and OneDrive-synced desktops (AzureAD accounts)
 $desktopPath = [System.Environment]::GetFolderPath("Desktop")
 if (-not (Test-Path $desktopPath)) {
     $desktopPath = "$env:USERPROFILE\Desktop"
