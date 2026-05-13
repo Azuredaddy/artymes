@@ -1,15 +1,30 @@
 import anthropic
 import random
+from datetime import datetime
 from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, CONVERSATION_WINDOW
 from brain.personality import ARTY_SYSTEM_PROMPT, ARTY_UNCERTAINTY_PHRASES, ARTY_LEARNING_PHRASES
 from brain.memory import ArtyMemory
-try:
-    from brain.context import build_live_context
-except Exception:
-    def build_live_context():
-        from datetime import datetime
-        now = datetime.now()
-        return f"## Live Awareness\nCurrent date: {now.strftime('%A, %d %B %Y')}\nCurrent time: {now.strftime('%H:%M')}"
+
+_context_cache = None
+_context_built_at = None
+_CONTEXT_TTL_SECONDS = 300  # refresh every 5 minutes
+
+
+def _build_context_cached() -> str:
+    global _context_cache, _context_built_at
+    now = datetime.now()
+    if _context_cache is None or (now - _context_built_at).total_seconds() > _CONTEXT_TTL_SECONDS:
+        try:
+            from brain.context import build_live_context
+            _context_cache = build_live_context()
+        except Exception:
+            _context_cache = (
+                f"## Live Awareness\n"
+                f"Current date: {now.strftime('%A, %d %B %Y')}\n"
+                f"Current time: {now.strftime('%H:%M')}"
+            )
+        _context_built_at = now
+    return _context_cache
 
 
 class ArtyBrain:
@@ -17,6 +32,9 @@ class ArtyBrain:
         self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         self.memory = ArtyMemory()
         self.session_id = None
+        # Build context once at startup and print it so we know it's working
+        ctx = _build_context_cached()
+        print(f"\n[Context loaded]\n{ctx}\n")
 
     def set_session(self, session_id: str):
         self.session_id = session_id
@@ -32,7 +50,7 @@ class ArtyBrain:
         recent_messages = self.memory.get_recent_messages(CONVERSATION_WINDOW)
 
         system = ARTY_SYSTEM_PROMPT
-        system += f"\n\n{build_live_context()}"
+        system += f"\n\n{_build_context_cached()}"
         if knowledge_context:
             system += f"\n\n{knowledge_context}"
 
