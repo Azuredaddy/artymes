@@ -90,10 +90,11 @@ $files = @(
     "eyes/__init__.py", "eyes/screen.py",
     "hands/__init__.py", "hands/control.py", "hands/win_control.py"
 )
+$cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 foreach ($file in $files) {
     $dir = Split-Path "$InstallDir\$file" -Parent
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    Invoke-WebRequest -Uri "$RepoBase/$file" -OutFile "$InstallDir\$file"
+    Invoke-WebRequest -Uri "$RepoBase/$file?v=$cacheBust" -OutFile "$InstallDir\$file"
 }
 Write-OK "Files downloaded."
 
