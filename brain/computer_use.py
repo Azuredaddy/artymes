@@ -81,7 +81,13 @@ class ArtyComputerUse:
                     self.voice.speak(narration[:200])
 
             if response.stop_reason == "end_turn":
-                return True
+                # Only count as success if we actually called tools — text-only responses
+                # mean Claude narrated but didn't do anything
+                did_something = any(
+                    b.type == "tool_use" for b in messages[-1]["content"]
+                    if hasattr(b, "type")
+                )
+                return did_something
 
             # Execute tool calls and feed results back
             tool_results = []

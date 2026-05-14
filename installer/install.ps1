@@ -88,7 +88,8 @@ $files = @(
     "brain/__init__.py", "brain/claude_client.py", "brain/memory.py", "brain/personality.py", "brain/context.py", "brain/trainer.py",
     "voice/__init__.py", "voice/stt.py", "voice/tts.py",
     "eyes/__init__.py", "eyes/screen.py",
-    "hands/__init__.py", "hands/control.py"
+    "hands/__init__.py", "hands/control.py", "hands/win_control.py",
+    "brain/computer_use.py"
 )
 foreach ($file in $files) {
     $dir = Split-Path "$InstallDir\$file" -Parent
