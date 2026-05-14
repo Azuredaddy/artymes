@@ -49,6 +49,21 @@ class ArtyEyes:
         """Capture all monitors and return (base64_jpeg, x_scale, y_scale)."""
         return self._grab_with_scale(self.sct.monitors[0])
 
+    def capture_primary_native(self) -> tuple:
+        """Capture primary monitor and return (base64_jpeg, real_width, real_height).
+        Used by Computer Use API — Claude needs real pixel dimensions for coordinates."""
+        monitor = self.sct.monitors[1] if len(self.sct.monitors) > 1 else self.sct.monitors[0]
+        shot = self.sct.grab(monitor)
+        img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+        real_w, real_h = img.width, img.height
+        # Scale down for API payload size, but return REAL dimensions for Claude's coord space
+        if img.width > 1366:
+            ratio = 1366 / img.width
+            img = img.resize((1366, int(img.height * ratio)), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=80)
+        return base64.b64encode(buf.getvalue()).decode("utf-8"), real_w, real_h
+
     def get_screen_size(self, monitor: int = 1) -> tuple:
         m = self.sct.monitors[min(monitor, len(self.sct.monitors) - 1)]
         return m["width"], m["height"]
