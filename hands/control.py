@@ -1,6 +1,12 @@
 import pyautogui
 import subprocess
 import time
+import os as _os
+from rich.console import Console as _Console
+_con = _Console()
+_DEBUG = _os.environ.get("ARTY_DEBUG", "0") == "1"
+def _dbg(msg):
+    if _DEBUG: _con.print(f"  [dim cyan][HANDS] {msg}[/dim cyan]")
 try:
     import pyperclip
     _HAS_CLIPBOARD = True
@@ -145,18 +151,24 @@ class ArtyHands:
             app_title = params.get("app", "")
             text = params.get("text", "")
             new_line = params.get("new_line", False)
-            if not self.type_into_window(app_title, text, new_line):
-                # Fallback: FOCUS the window first, then paste via clipboard
-                self.click_into_window(app_title)
+            _dbg(f"direct_type → app='{app_title}' text='{text[:40]}' new_line={new_line}")
+            ok = self.type_into_window(app_title, text, new_line)
+            _dbg(f"type_into_window result: {ok}")
+            if not ok:
+                _dbg("falling back to click_into_window + clipboard paste")
+                focused = self.click_into_window(app_title)
+                _dbg(f"click_into_window: {focused}")
                 time.sleep(0.5)
                 if new_line:
                     pyautogui.hotkey("ctrl", "end")
                     pyautogui.press("enter")
                     time.sleep(0.1)
                 if _HAS_CLIPBOARD:
+                    _dbg("pasting via ctrl+v")
                     pyperclip.copy(text)
                     pyautogui.hotkey("ctrl", "v")
                 else:
+                    _dbg("typewrite fallback")
                     pyautogui.typewrite(text, interval=0.05)
         elif atype == "focus_window":
             self.click_into_window(params.get("title", ""))

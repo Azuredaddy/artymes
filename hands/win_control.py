@@ -34,6 +34,13 @@ class INPUT(ctypes.Structure):
 
 _send = ctypes.windll.user32.SendInput
 
+# Debug helper — set ARTY_DEBUG=1 env var to enable
+import os as _os
+_DEBUG = _os.environ.get("ARTY_DEBUG", "0") == "1"
+def _dbg(msg: str):
+    if _DEBUG:
+        print(f"  [WIN] {msg}", flush=True)
+
 
 def _ki(vk=0, scan=0, flags=0):
     return KEYBDINPUT(vk, scan, flags, 0, None)
@@ -89,14 +96,22 @@ except ImportError:
 
 def _find_window_handle(title_contains: str) -> int:
     if not _HAS_WIN32:
+        _dbg("win32 not available — pywin32 not installed")
         return 0
     result = []
+    all_titles = []
     def _cb(hwnd, _):
         if win32gui.IsWindowVisible(hwnd):
             t = win32gui.GetWindowText(hwnd)
+            if t:
+                all_titles.append(t)
             if title_contains.lower() in t.lower():
                 result.append(hwnd)
     win32gui.EnumWindows(_cb, None)
+    if result:
+        _dbg(f"found window '{win32gui.GetWindowText(result[0])}' (hwnd={result[0]})")
+    else:
+        _dbg(f"no window matching '{title_contains}'. visible: {all_titles[:8]}")
     return result[0] if result else 0
 
 
@@ -116,8 +131,10 @@ def _foreground(hwnd: int) -> bool:
         win32gui.ShowWindow(hwnd, 9)   # SW_RESTORE
         win32gui.SetForegroundWindow(hwnd)
         time.sleep(0.4)
+        _dbg(f"SetForegroundWindow({hwnd}) OK")
         return True
-    except Exception:
+    except Exception as e:
+        _dbg(f"SetForegroundWindow({hwnd}) FAILED: {e}")
         return False
 
 
@@ -125,16 +142,21 @@ def _foreground(hwnd: int) -> bool:
 
 def sendinput_type_into(title_contains: str, text: str, new_line_first: bool = False) -> bool:
     """Focus window then inject text via SendInput. Works on any modern app."""
+    _dbg(f"sendinput_type_into('{title_contains}', '{text[:30]}', new_line={new_line_first})")
     hwnd = _find_window_handle(title_contains)
     if not hwnd:
+        _dbg("sendinput: window not found — aborting")
         return False
     if not _foreground(hwnd):
+        _dbg("sendinput: could not foreground window — aborting")
         return False
+    _dbg(f"sendinput: sending {len(text)} chars via SendInput")
     if new_line_first:
         _press_key(VK_END)
         _press_key(VK_RETURN)
         time.sleep(0.05)
     _sendinput_text(text)
+    _dbg("sendinput: done")
     return True
 
 
@@ -142,10 +164,13 @@ def sendinput_type_into(title_contains: str, text: str, new_line_first: bool = F
 
 def wm_char_type_into(title_contains: str, text: str, new_line_first: bool = False) -> bool:
     """Send WM_CHAR directly to an Edit control. No focus needed."""
+    _dbg(f"wm_char_type_into('{title_contains}', '{text[:30]}')")
     if not _HAS_WIN32:
+        _dbg("wm_char: win32 not available")
         return False
     hwnd = _find_window_handle(title_contains)
     if not hwnd:
+        _dbg("wm_char: window not found")
         return False
     edit = _find_edit_handle(hwnd)
     target = edit if edit else hwnd

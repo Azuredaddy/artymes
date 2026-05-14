@@ -280,8 +280,9 @@ def run():
 
     from hands.control import _HAS_WINCTRL, _HAS_GW, _HAS_CLIPBOARD
     monitor_count = eyes.get_monitor_count()
-    win32_status = "[green]win32 ready[/green]" if _HAS_WINCTRL else "[yellow]win32 unavailable[/yellow]"
-    console.print(f"[bold green]ARTY is online.[/bold green]  Session: {session_id[:8]}  Monitors: {monitor_count}  {win32_status}\n")
+    win32_status = "[green]win32 ready[/green]" if _HAS_WINCTRL else "[yellow]win32 unavailable — pywin32 not installed[/yellow]"
+    debug_status = "  [magenta]DEBUG ON[/magenta]" if os.environ.get("ARTY_DEBUG") == "1" else ""
+    console.print(f"[bold green]ARTY is online.[/bold green]  Session: {session_id[:8]}  Monitors: {monitor_count}  {win32_status}{debug_status}\n")
     console.print(f"  [green]ARTY:[/green] {ARTY_GREETING}")
     voice.speak(ARTY_GREETING)
 
@@ -372,6 +373,11 @@ def run():
                 continue
 
             console.print(f"\n  [bold white]You:[/bold white] {user_input}")
+
+            _debug_mode = os.environ.get("ARTY_DEBUG", "0") == "1"
+            if _debug_mode:
+                console.print(f"  [dim cyan][ROUTE] checking: '{user_input[:60]}'[/dim cyan]")
+                console.print(f"  [dim cyan][ROUTE] is_action={_is_computer_action(user_input)}  last_goal={bool(last_action_goal)}[/dim cyan]")
 
             if _is_computer_action(user_input):
                 last_action_goal = user_input
