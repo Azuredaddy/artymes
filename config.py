@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 
-ARTY_VERSION = "1.4.4"
+ARTY_VERSION = "1.4.5"
 VERSION = ARTY_VERSION  # alias used by check_setup.py
 
 # Always load .env from the same folder as this file, regardless of working directory
@@ -17,7 +17,7 @@ PUSH_TO_TALK = os.getenv("PUSH_TO_TALK", "false").lower() == "true"
 MEMORY_DB_PATH = os.getenv("MEMORY_DB_PATH", "./data/arty_memory.db")
 CHROMA_PATH = os.getenv("CHROMA_PATH", "./data/chroma")
 
-CLAUDE_MODEL = "claude-sonnet-4-6"
+CLAUDE_MODEL = "claude-opus-4-7"
 WHISPER_MODEL = "base"
 
 CONVERSATION_WINDOW = 20
