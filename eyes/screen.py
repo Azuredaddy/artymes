@@ -25,15 +25,29 @@ class ArtyEyes:
         return self.capture_monitor(1)
 
     def _grab(self, monitor) -> str:
+        b64, _, _ = self._grab_with_scale(monitor)
+        return b64
+
+    def _grab_with_scale(self, monitor) -> tuple:
+        """Returns (base64_jpeg, x_scale, y_scale).
+        Scale factors convert Claude's image coords back to real screen coords."""
         shot = self.sct.grab(monitor)
         img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
-        # Cap at 1280px wide to keep payload reasonable for Claude vision
-        if img.width > 1280:
-            ratio = 1280 / img.width
-            img = img.resize((1280, int(img.height * ratio)), Image.LANCZOS)
+        orig_w, orig_h = img.width, img.height
+        if orig_w > 1280:
+            ratio = 1280 / orig_w
+            img = img.resize((1280, int(orig_h * ratio)), Image.LANCZOS)
+        scaled_w, scaled_h = img.size
+        x_scale = orig_w / scaled_w
+        y_scale = orig_h / scaled_h
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=85)
-        return base64.b64encode(buf.getvalue()).decode("utf-8")
+        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        return b64, x_scale, y_scale
+
+    def capture_all_with_scale(self) -> tuple:
+        """Capture all monitors and return (base64_jpeg, x_scale, y_scale)."""
+        return self._grab_with_scale(self.sct.monitors[0])
 
     def get_screen_size(self, monitor: int = 1) -> tuple:
         m = self.sct.monitors[min(monitor, len(self.sct.monitors) - 1)]

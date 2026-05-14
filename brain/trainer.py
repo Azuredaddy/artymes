@@ -75,7 +75,7 @@ class TrainingSession:
         action_history = []
 
         for step_num in range(max_steps):
-            screenshot_b64 = self.eyes.capture_all()
+            screenshot_b64, x_scale, y_scale = self.eyes.capture_all_with_scale()
 
             # Build history text so Claude knows what's already been done
             history_text = ""
@@ -138,6 +138,18 @@ class TrainingSession:
                     self.voice.speak("I seem to be going in circles on this one.")
                     return False
 
+            # Scale coordinates from Claude's image space → real screen pixels
+            params = action.get("params", {})
+            if atype in ("click", "double_click", "right_click", "move") and "x" in params:
+                params["x"] = int(params["x"] * x_scale)
+                params["y"] = int(params["y"] * y_scale)
+                action["params"] = params
+            elif atype == "scroll" and "x" in params:
+                params["x"] = int(params["x"] * x_scale)
+                params["y"] = int(params["y"] * y_scale)
+                action["params"] = params
+
+            console.print(f"  [dim]  → {atype} {params}[/dim]")
             action_history.append(action)
 
             try:
