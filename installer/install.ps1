@@ -90,14 +90,15 @@ $files = @(
     "eyes/__init__.py", "eyes/screen.py",
     "hands/__init__.py", "hands/control.py", "hands/win_control.py"
 )
-$cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$wc = New-Object System.Net.WebClient
+$wc.Headers.Add("Cache-Control", "no-cache, no-store")
+$wc.Headers.Add("Pragma", "no-cache")
 $downloadErrors = @()
 foreach ($file in $files) {
     $dir = Split-Path "$InstallDir\$file" -Parent
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    $uri = "$RepoBase/$file?v=$cacheBust"
     try {
-        Invoke-WebRequest -Uri $uri -OutFile "$InstallDir\$file" -UseBasicParsing -ErrorAction Stop
+        $wc.DownloadFile("$RepoBase/$file", "$InstallDir\$file")
     } catch {
         Write-Fail "Failed: $file ($_)"
         $downloadErrors += $file
@@ -105,7 +106,6 @@ foreach ($file in $files) {
 }
 if ($downloadErrors.Count -gt 0) {
     Write-Fail "Could not download: $($downloadErrors -join ', ')"
-    Write-Fail "Check your internet connection and try again."
     Read-Host "Press Enter to exit"
     exit 1
 }
