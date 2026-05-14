@@ -71,7 +71,10 @@ class ArtyHands:
     def press(self, key: str):
         pyautogui.press(key)
 
-    def hotkey(self, *keys):
+    def hotkey(self, *keys, window: str = ""):
+        if window and _HAS_WINCTRL:
+            _win_ctrl.focus(window)
+            time.sleep(0.35)
         pyautogui.hotkey(*keys)
 
     def scroll(self, x: int, y: int, amount: int):
@@ -189,7 +192,13 @@ class ArtyHands:
         elif atype == "press":
             self.press(params["key"])
         elif atype == "hotkey":
-            self.hotkey(*params["keys"])
+            self.hotkey(*params["keys"], window=params.get("window", ""))
+        elif atype == "close":
+            title = params.get("title", "")
+            if _HAS_WINCTRL:
+                _win_ctrl.focus(title)
+                time.sleep(0.3)
+            pyautogui.hotkey("alt", "f4")
         elif atype == "scroll":
             self.scroll(params["x"], params["y"], params["amount"])
         elif atype == "open":

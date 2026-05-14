@@ -32,14 +32,18 @@ Coordinate-based actions (use only when direct_type/focus_window aren't enough):
 Other actions:
 - type: {"text": "string"}  — types at current cursor (ONLY if window already focused)
 - press: {"key": "enter|tab|escape|backspace|delete|space|home|end|ctrl+end|..."}
-- hotkey: {"keys": ["ctrl", "s"]}
-  Common browser hotkeys: new tab=["ctrl","t"], close tab=["ctrl","w"], new window=["ctrl","n"], refresh=["ctrl","r"], address bar=["ctrl","l"]
+- hotkey: {"keys": ["ctrl", "s"], "window": "Chrome (optional — focuses named window THEN sends keys in one step)"}
+  Use window param for ALL browser/app hotkeys — do NOT do a separate focus_window step first.
+  Common browser hotkeys: new tab=["ctrl","t"], close tab=["ctrl","w"], close window=["alt","f4"], new window=["ctrl","n"], refresh=["ctrl","r"]
+- close: {"title": "Chrome"}  — closes a named window cleanly (Alt+F4)
 - open: {"app": "notepad|calculator|chrome|..."}
 - wait: {"seconds": float}
 - done: {}  — ONLY after you have actually performed all required actions in this session
 
 Rules:
 - For ANY typing task: use direct_type with the app name, NOT click + type
+- For ANY hotkey that targets a specific app: use hotkey with "window" param — NEVER do focus_window + hotkey as two steps
+- NEVER repeat focus_window for the same title — if you already did it, that window is focused; move on
 - Do NOT click near the top 40px of windows (title bar — will move/close window)
 - Never repeat an action already listed in history
 - NEVER return done on step 1 unless the task truly requires zero actions
@@ -144,9 +148,9 @@ class TrainingSession:
             if atype == "done":
                 return True
 
-            # Loop detection — if the same action type repeats 3 times in a row, bail
-            if len(action_history) >= 3:
-                last3 = [a.get("action") for a in action_history[-3:]]
+            # Loop detection — if the same action type repeats 2 times in a row, bail
+            if len(action_history) >= 2:
+                last3 = [a.get("action") for a in action_history[-2:]]
                 if len(set(last3)) == 1 and last3[0] == atype:
                     console.print("  [yellow]ARTY: Looks like I'm going in circles.[/yellow]")
                     self.voice.speak("I seem to be going in circles on this one.")
