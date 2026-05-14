@@ -171,7 +171,11 @@ class ArtyHands:
                     _dbg("typewrite fallback")
                     pyautogui.typewrite(text, interval=0.05)
         elif atype == "focus_window":
-            self.click_into_window(params.get("title", ""))
+            title = params.get("title", "")
+            if _HAS_WINCTRL:
+                _win_ctrl.focus(title)  # uses win32 + Alt-key trick
+            else:
+                self.click_into_window(title)
         elif atype == "click":
             self.click(params["x"], params["y"])
         elif atype == "double_click":

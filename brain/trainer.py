@@ -33,6 +33,7 @@ Other actions:
 - type: {"text": "string"}  — types at current cursor (ONLY if window already focused)
 - press: {"key": "enter|tab|escape|backspace|delete|space|home|end|ctrl+end|..."}
 - hotkey: {"keys": ["ctrl", "s"]}
+  Common browser hotkeys: new tab=["ctrl","t"], close tab=["ctrl","w"], new window=["ctrl","n"], refresh=["ctrl","r"], address bar=["ctrl","l"]
 - open: {"app": "notepad|calculator|chrome|..."}
 - wait: {"seconds": float}
 - done: {}  — ONLY after you have actually performed all required actions in this session
