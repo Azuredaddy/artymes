@@ -188,33 +188,12 @@ class ArtyTrainer:
         self.hands = hands
         self.voice = voice
         self.memory = memory
-        self._cu = None
-        self._cu_loaded = False
-
-    def _get_computer_use(self):
-        """Lazy-load Computer Use — only initialise once."""
-        if not self._cu_loaded:
-            self._cu_loaded = True
-            try:
-                from brain.computer_use import ArtyComputerUse
-                self._cu = ArtyComputerUse(self.eyes, self.voice)
-                console.print("  [dim]Computer Use API ready.[/dim]")
-            except Exception as e:
-                console.print(f"  [dim yellow]Computer Use unavailable: {e}[/dim yellow]")
-        return self._cu
 
     def start(self, topic: str) -> TrainingSession:
         return TrainingSession(topic, self.eyes, self.hands, self.voice)
 
     def execute_task(self, goal: str) -> bool:
-        """Run an ad-hoc computer task.
-        Tries Claude Computer Use API first (smarter), falls back to vision loop."""
-        cu = self._get_computer_use()
-        if cu:
-            try:
-                return cu.execute_task(goal)
-            except Exception as e:
-                console.print(f"  [yellow]Computer Use failed ({e}), falling back to vision loop[/yellow]")
+        """Run an ad-hoc computer task via the vision + action loop."""
         session = TrainingSession(goal, self.eyes, self.hands, self.voice)
         return session.try_task()
 
@@ -222,14 +201,6 @@ class ArtyTrainer:
         proc = self.memory.load_procedure(name)
         if not proc:
             return False
-        cu = self._get_computer_use()
-        if cu:
-            try:
-                step_desc = " → ".join(s["description"] for s in proc.get("steps", []))
-                goal = f"{name}. Steps: {step_desc}"
-                return cu.execute_task(goal)
-            except Exception:
-                pass
         session = TrainingSession(name, self.eyes, self.hands, self.voice)
         session.steps = [{"description": s["description"], "screenshot_b64": ""} for s in proc.get("steps", [])]
         return session.try_task()
