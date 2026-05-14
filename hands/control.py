@@ -83,8 +83,12 @@ class ArtyHands:
     def open_app(self, app_name: str):
         exe = WINDOWS_APPS.get(app_name.lower().strip())
         if exe:
-            subprocess.Popen([exe])
-            time.sleep(2.0)  # wait for window to fully appear and focus
+            try:
+                subprocess.Popen([exe])
+            except FileNotFoundError:
+                # Browser/Office exes aren't in PATH — use Windows shell to resolve
+                subprocess.Popen(f'start "" "{exe}"', shell=True)
+            time.sleep(2.0)
         else:
             # Fall back to Windows search
             pyautogui.hotkey("win")
