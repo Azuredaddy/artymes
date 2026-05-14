@@ -84,12 +84,11 @@ Write-Step "Downloading Artymes files..."
 $RepoBase = "https://raw.githubusercontent.com/Azuredaddy/artymes/main"
 $files = @(
     "main.py", "config.py", "requirements.txt", ".env.example", "version.txt",
-    "run_arty.bat", "setup_windows.bat",
-    "brain/__init__.py", "brain/claude_client.py", "brain/memory.py", "brain/personality.py", "brain/context.py", "brain/trainer.py",
+    "run_arty.bat", "run_arty_debug.bat", "setup_windows.bat",
+    "brain/__init__.py", "brain/claude_client.py", "brain/memory.py", "brain/personality.py", "brain/context.py", "brain/trainer.py", "brain/computer_use.py",
     "voice/__init__.py", "voice/stt.py", "voice/tts.py",
     "eyes/__init__.py", "eyes/screen.py",
-    "hands/__init__.py", "hands/control.py", "hands/win_control.py",
-    "brain/computer_use.py"
+    "hands/__init__.py", "hands/control.py", "hands/win_control.py"
 )
 foreach ($file in $files) {
     $dir = Split-Path "$InstallDir\$file" -Parent
