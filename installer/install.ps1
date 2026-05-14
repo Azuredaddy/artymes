@@ -2,7 +2,7 @@
 # Run with: iwr -useb https://raw.githubusercontent.com/Azuredaddy/artymes/main/installer/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
-$ArtyVersion = "1.4.3"
+$ArtyVersion = "1.4.5"
 $InstallDir = "C:\Artymes"
 
 function Write-Header {
