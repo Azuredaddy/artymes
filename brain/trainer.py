@@ -149,6 +149,11 @@ class ArtyTrainer:
     def start(self, topic: str) -> TrainingSession:
         return TrainingSession(topic, self.eyes, self.hands, self.voice)
 
+    def execute_task(self, goal: str) -> bool:
+        """Run an ad-hoc computer task from normal conversation — no prior training needed."""
+        session = TrainingSession(goal, self.eyes, self.hands, self.voice)
+        return session.try_task()
+
     def run_procedure(self, name: str) -> bool:
         proc = self.memory.load_procedure(name)
         if not proc:

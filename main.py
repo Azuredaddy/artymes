@@ -7,6 +7,7 @@ import os
 import sys
 import uuid
 import random
+import re
 import requests
 from datetime import datetime
 from rich.console import Console
@@ -16,6 +17,17 @@ from colorama import init as colorama_init
 
 colorama_init()
 console = Console()
+
+_ACTION_RE = re.compile(
+    r'\b(open|launch|start up|close|minimize|maximise|maximize|pull up|bring up|'
+    r'type|click|press|scroll|go to|navigate to|search for|switch to|tab over|'
+    r'copy|paste|select all|undo|redo|save|create a new|make a new)\b',
+    re.IGNORECASE
+)
+
+def _is_computer_action(text: str) -> bool:
+    """True if the user is asking ARTY to do something on the computer."""
+    return bool(_ACTION_RE.search(text))
 
 COMMANDS = {
     "/help":    "Show this help",
@@ -291,6 +303,22 @@ def run():
                 continue
 
             console.print(f"\n  [bold white]You:[/bold white] {user_input}")
+
+            if _is_computer_action(user_input):
+                ack = random.choice(["On it.", "Sure, give me a sec.", "Right, on it.", "Yep, doing that now."])
+                console.print(f"  [green]ARTY:[/green] {ack}")
+                voice.speak(ack)
+                success = trainer.execute_task(user_input)
+                if not success:
+                    reply = random.choice([
+                        "I couldn't quite pull that off. Want to show me how in training mode?",
+                        "I got stuck on that one. A quick training session would help.",
+                        "Hmm, that didn't go to plan. Want to walk me through it?",
+                    ])
+                    console.print(f"  [green]ARTY:[/green] {reply}")
+                    voice.speak(reply)
+                continue
+
             reply, needs_help = brain.think_streaming(user_input, voice)
             console.print(f"  [green]ARTY:[/green] {reply}")
 
