@@ -48,6 +48,15 @@ class ArtyMemory:
                 updated_at TEXT
             )
         """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS procedures (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                steps_json TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                updated_at TEXT
+            )
+        """)
         self.conn.commit()
 
     def save_message(self, role: str, content: str, session_id: str = None):
@@ -127,3 +136,34 @@ class ArtyMemory:
             return ""
         joined = "\n---\n".join(snippets)
         return f"Relevant knowledge from your training:\n{joined}"
+
+    def save_procedure(self, name: str, steps: list):
+        existing = self.conn.execute(
+            "SELECT id FROM procedures WHERE name = ?", (name,)
+        ).fetchone()
+        now = datetime.now().isoformat()
+        if existing:
+            self.conn.execute(
+                "UPDATE procedures SET steps_json = ?, updated_at = ? WHERE name = ?",
+                (json.dumps(steps), now, name)
+            )
+        else:
+            self.conn.execute(
+                "INSERT INTO procedures (name, steps_json, recorded_at) VALUES (?, ?, ?)",
+                (name, json.dumps(steps), now)
+            )
+        self.conn.commit()
+
+    def load_procedure(self, name: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT name, steps_json FROM procedures WHERE name = ?", (name,)
+        ).fetchone()
+        if not row:
+            return None
+        return {"name": row[0], "steps": json.loads(row[1])}
+
+    def list_procedures(self) -> list:
+        rows = self.conn.execute(
+            "SELECT name, recorded_at FROM procedures ORDER BY name"
+        ).fetchall()
+        return [{"name": r[0], "recorded_at": r[1]} for r in rows]

@@ -55,3 +55,32 @@ ARTY_LEARNING_PHRASES = [
     "Noted. I'll handle it that way from now on.",
     "Cheers for showing me. That's going in the memory bank.",
 ]
+
+ARTY_TRAINING_WATCH_PHRASES = [
+    "Got it.",
+    "Noted.",
+    "Right, I've got that.",
+    "OK, I see that.",
+    "Yep, logged.",
+    "Good, I'm following.",
+]
+
+ARTY_TRAINING_TRY_PHRASES = [
+    "Right, let me have a go.",
+    "OK, my turn. Here we go.",
+    "Alright, I'll give it a crack.",
+    "Let's see if I've got this.",
+]
+
+ARTY_TRAINING_SUCCESS_PHRASES = [
+    "Done! Did I get it right?",
+    "Think I've got it. How'd that look?",
+    "Not bad for a first attempt. Want to save that?",
+    "Task complete. Should I save that procedure?",
+]
+
+ARTY_TRAINING_FAIL_PHRASES = [
+    "Hmm, I struggled with that one. Want to walk me through it again?",
+    "I got a bit lost on that. Another demo would help.",
+    "That didn't go quite to plan. Want to show me again?",
+]

@@ -2,7 +2,7 @@
 # Run with: iwr -useb https://raw.githubusercontent.com/Azuredaddy/artymes/main/installer/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
-$ArtyVersion = "1.4.5"
+$ArtyVersion = "1.5.0"
 $InstallDir = "C:\Artymes"
 
 function Write-Header {
@@ -10,7 +10,7 @@ function Write-Header {
     Write-Host ""
     Write-Host "  +------------------------------------------+" -ForegroundColor Cyan
     Write-Host "  |     Project Artymes - ARTY Installer     |" -ForegroundColor Cyan
-    Write-Host "  |              Version $ArtyVersion                |" -ForegroundColor Cyan
+    Write-Host "  |              Version $ArtyVersion               |" -ForegroundColor Cyan
     Write-Host "  +------------------------------------------+" -ForegroundColor Cyan
     Write-Host ""
 }
@@ -85,8 +85,10 @@ $RepoBase = "https://raw.githubusercontent.com/Azuredaddy/artymes/main"
 $files = @(
     "main.py", "config.py", "requirements.txt", ".env.example", "version.txt",
     "run_arty.bat", "setup_windows.bat",
-    "brain/__init__.py", "brain/claude_client.py", "brain/memory.py", "brain/personality.py", "brain/context.py",
-    "voice/__init__.py", "voice/stt.py", "voice/tts.py"
+    "brain/__init__.py", "brain/claude_client.py", "brain/memory.py", "brain/personality.py", "brain/context.py", "brain/trainer.py",
+    "voice/__init__.py", "voice/stt.py", "voice/tts.py",
+    "eyes/__init__.py", "eyes/screen.py",
+    "hands/__init__.py", "hands/control.py"
 )
 foreach ($file in $files) {
     $dir = Split-Path "$InstallDir\$file" -Parent
