@@ -1,13 +1,74 @@
 """
 ArtyWinControl — Windows-native app control.
 
-Priority stack for typing into an app:
-1. win32 WM_CHAR direct messaging (most reliable — no focus/coords needed)
-2. pywinauto accessibility API (good for UI elements by name)
-3. pyautogui clipboard paste (fallback)
+Input strategy (in order):
+1. SetForegroundWindow + SendInput  (universal — works on modern WinUI/UWP/Electron)
+2. WM_CHAR to Edit handle           (classic Win32 apps, no focus needed)
+3. pywinauto accessibility API      (last resort)
 """
+import ctypes
+import ctypes.wintypes as wintypes
 import time
 
+# ── SendInput structs (no extra dependencies — pure ctypes) ───────────────────
+INPUT_KEYBOARD   = 1
+KEYEVENTF_UNICODE = 0x0004
+KEYEVENTF_KEYUP  = 0x0002
+VK_RETURN = 0x0D
+VK_END    = 0x23
+
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ("wVk",         wintypes.WORD),
+        ("wScan",       wintypes.WORD),
+        ("dwFlags",     wintypes.DWORD),
+        ("time",        wintypes.DWORD),
+        ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG)),
+    ]
+
+class _INPUT_UNION(ctypes.Union):
+    _fields_ = [("ki", KEYBDINPUT)]
+
+class INPUT(ctypes.Structure):
+    _fields_ = [("type", wintypes.DWORD), ("_input", _INPUT_UNION)]
+
+_send = ctypes.windll.user32.SendInput
+
+
+def _ki(vk=0, scan=0, flags=0):
+    return KEYBDINPUT(vk, scan, flags, 0, None)
+
+
+def _sendinput_text(text: str):
+    """Inject text into the focused window via SendInput Unicode events."""
+    inputs = []
+    for ch in text:
+        code = ord(ch)
+        if ch in ('\r', '\n'):
+            inputs += [
+                INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=_ki(VK_RETURN, 0, 0))),
+                INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=_ki(VK_RETURN, 0, KEYEVENTF_KEYUP))),
+            ]
+        else:
+            inputs += [
+                INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=_ki(0, code, KEYEVENTF_UNICODE))),
+                INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=_ki(0, code, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP))),
+            ]
+    if not inputs:
+        return
+    arr = (INPUT * len(inputs))(*inputs)
+    _send(len(inputs), arr, ctypes.sizeof(INPUT))
+
+
+def _press_key(vk: int):
+    arr = (INPUT * 2)(
+        INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=_ki(vk, 0, 0))),
+        INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=_ki(vk, 0, KEYEVENTF_KEYUP))),
+    )
+    _send(2, arr, ctypes.sizeof(INPUT))
+
+
+# ── win32 imports (optional) ──────────────────────────────────────────────────
 try:
     import win32gui
     import win32con
@@ -24,8 +85,9 @@ except ImportError:
     _HAS_PYWINAUTO = False
 
 
+# ── window finding ────────────────────────────────────────────────────────────
+
 def _find_window_handle(title_contains: str) -> int:
-    """Find a window HWND by partial title. Returns 0 if not found."""
     if not _HAS_WIN32:
         return 0
     result = []
@@ -39,10 +101,8 @@ def _find_window_handle(title_contains: str) -> int:
 
 
 def _find_edit_handle(parent_hwnd: int) -> int:
-    """Find the main Edit control inside a window."""
     if not _HAS_WIN32 or not parent_hwnd:
         return 0
-    # Try common text control class names
     for cls in ("Edit", "RichEdit20W", "RichEditD2DPT", "RICHEDIT50W", "Scintilla"):
         h = win32gui.FindWindowEx(parent_hwnd, None, cls, None)
         if h:
@@ -50,58 +110,68 @@ def _find_edit_handle(parent_hwnd: int) -> int:
     return 0
 
 
-def win32_type_into(title_contains: str, text: str, new_line_first: bool = False) -> bool:
-    """Send text directly to a window's Edit control via WM_CHAR.
-    Works without focus, without coordinates. Most reliable method."""
-    if not _HAS_WIN32:
-        return False
-
-    hwnd = _find_window_handle(title_contains)
-    if not hwnd:
-        return False
-
-    edit = _find_edit_handle(hwnd)
-    target = edit if edit else hwnd
-
-    # Bring window to foreground first
+def _foreground(hwnd: int) -> bool:
+    """Bring hwnd to the foreground. Returns True on success."""
     try:
-        win32gui.ShowWindow(hwnd, 5)   # SW_SHOW
+        win32gui.ShowWindow(hwnd, 9)   # SW_RESTORE
         win32gui.SetForegroundWindow(hwnd)
-        time.sleep(0.3)
-    except Exception:
-        pass
-
-    if new_line_first:
-        # Move to end then newline
-        win32gui.SendMessage(target, win32con.WM_KEYDOWN, win32con.VK_END, 0)
-        win32gui.SendMessage(target, win32con.WM_CHAR, ord('\r'), 0)
-        time.sleep(0.05)
-
-    for char in text:
-        win32gui.SendMessage(target, win32con.WM_CHAR, ord(char), 0)
-        time.sleep(0.01)
-
-    return True
-
-
-def win32_focus(title_contains: str) -> bool:
-    """Bring a window to front using win32."""
-    if not _HAS_WIN32:
-        return False
-    hwnd = _find_window_handle(title_contains)
-    if not hwnd:
-        return False
-    try:
-        win32gui.ShowWindow(hwnd, 5)
-        win32gui.SetForegroundWindow(hwnd)
-        time.sleep(0.3)
+        time.sleep(0.4)
         return True
     except Exception:
         return False
 
 
+# ── primary input: SendInput (works on modern WinUI/UWP/Electron apps) ────────
+
+def sendinput_type_into(title_contains: str, text: str, new_line_first: bool = False) -> bool:
+    """Focus window then inject text via SendInput. Works on any modern app."""
+    hwnd = _find_window_handle(title_contains)
+    if not hwnd:
+        return False
+    if not _foreground(hwnd):
+        return False
+    if new_line_first:
+        _press_key(VK_END)
+        _press_key(VK_RETURN)
+        time.sleep(0.05)
+    _sendinput_text(text)
+    return True
+
+
+# ── secondary input: WM_CHAR (classic Win32 edit controls, no focus needed) ───
+
+def wm_char_type_into(title_contains: str, text: str, new_line_first: bool = False) -> bool:
+    """Send WM_CHAR directly to an Edit control. No focus needed."""
+    if not _HAS_WIN32:
+        return False
+    hwnd = _find_window_handle(title_contains)
+    if not hwnd:
+        return False
+    edit = _find_edit_handle(hwnd)
+    target = edit if edit else hwnd
+    _foreground(hwnd)
+    if new_line_first:
+        win32gui.SendMessage(target, win32con.WM_KEYDOWN, win32con.VK_END, 0)
+        win32gui.SendMessage(target, win32con.WM_CHAR, ord('\r'), 0)
+        time.sleep(0.05)
+    for ch in text:
+        win32gui.SendMessage(target, win32con.WM_CHAR, ord(ch), 0)
+        time.sleep(0.008)
+    return True
+
+
+# ── public helpers ─────────────────────────────────────────────────────────────
+
+def win32_focus(title_contains: str) -> bool:
+    if not _HAS_WIN32:
+        return False
+    hwnd = _find_window_handle(title_contains)
+    if not hwnd:
+        return False
+    return _foreground(hwnd)
+
+
 def win32_list_windows() -> list:
-    """List all visible window titles via win32."""
     if not _HAS_WIN32:
         return []
     titles = []
@@ -114,7 +184,10 @@ def win32_list_windows() -> list:
     return titles
 
 
+# ── ArtyWinControl class ───────────────────────────────────────────────────────
+
 class ArtyWinControl:
+
     def connect(self, title_contains: str):
         if not _HAS_PYWINAUTO:
             return None
@@ -140,12 +213,14 @@ class ArtyWinControl:
             return False
 
     def type_into(self, title_contains: str, text: str, new_line_first: bool = False) -> bool:
-        """Try win32 direct messaging first, then pywinauto, then give up."""
-        # Strategy 1: win32 WM_CHAR — most reliable
-        if win32_type_into(title_contains, text, new_line_first):
+        """Try all input strategies in order. Returns True if any succeeded."""
+        # Strategy 1: SendInput (universal — works on modern apps)
+        if sendinput_type_into(title_contains, text, new_line_first):
             return True
-
-        # Strategy 2: pywinauto accessibility
+        # Strategy 2: WM_CHAR (classic Win32 edit controls)
+        if wm_char_type_into(title_contains, text, new_line_first):
+            return True
+        # Strategy 3: pywinauto
         if not _HAS_PYWINAUTO:
             return False
         app = self.connect(title_contains)
@@ -155,11 +230,6 @@ class ArtyWinControl:
             dlg = app.top_window()
             dlg.set_focus()
             time.sleep(0.3)
-            try:
-                edit = dlg.Edit
-                edit.set_focus()
-            except Exception:
-                pass
             if new_line_first:
                 send_keys("{END}{ENTER}")
                 time.sleep(0.1)
@@ -175,7 +245,6 @@ class ArtyWinControl:
 
     def click_control(self, title_contains: str, control_name: str = None) -> bool:
         if win32_focus(title_contains):
-            # Win32 focused it — good enough for most cases
             return True
         if not _HAS_PYWINAUTO:
             return False
@@ -186,11 +255,8 @@ class ArtyWinControl:
             dlg = app.top_window()
             dlg.set_focus()
             time.sleep(0.3)
-            try:
-                ctrl = dlg[control_name] if control_name else dlg.Edit
-                ctrl.click_input()
-            except Exception:
-                dlg.click_input()
+            ctrl = dlg[control_name] if control_name else dlg.Edit
+            ctrl.click_input()
             return True
         except Exception:
             return False

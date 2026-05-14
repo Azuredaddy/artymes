@@ -329,24 +329,40 @@ def run():
                 elif cmd == "/version":
                     show_version(ARTY_VERSION, GITHUB_VERSION_URL, voice)
                 elif cmd.startswith("/test"):
-                    # /test <app title> | <text>  — directly test win32 typing
+                    # /test <app title> | <text>
                     arg = user_input[5:].strip()
                     if "|" in arg:
                         app_title, test_text = arg.split("|", 1)
-                        app_title = app_title.strip()
-                        test_text = test_text.strip()
+                        app_title, test_text = app_title.strip(), test_text.strip()
                     else:
                         app_title = arg.strip() or "Notepad"
                         test_text = "ARTY test"
-                    console.print(f"  [dim]Testing win32 type into '{app_title}': '{test_text}'[/dim]")
-                    ok = hands.type_into_window(app_title, test_text, new_line_first=True)
-                    if ok:
-                        console.print("  [green]win32 type: OK[/green]")
-                    else:
-                        console.print("  [red]win32 type: FAILED — checking fallback[/red]")
-                        # List visible windows to help debug title matching
-                        wins = hands.list_windows()
-                        console.print(f"  [dim]Visible windows: {wins[:10]}[/dim]")
+                    console.print(f"\n  [yellow]── /test ──[/yellow]")
+                    console.print(f"  Target app : [cyan]{app_title}[/cyan]")
+                    console.print(f"  Text       : [cyan]{test_text}[/cyan]")
+                    # Show visible windows for title matching help
+                    wins = hands.list_windows()
+                    matches = [w for w in wins if app_title.lower() in w.lower()]
+                    console.print(f"  Windows matching '{app_title}': {matches or '[none — check title]'}")
+                    # Try SendInput directly
+                    from hands.win_control import sendinput_type_into, wm_char_type_into
+                    console.print("  [dim]Trying SendInput...[/dim]")
+                    ok1 = sendinput_type_into(app_title, test_text, new_line_first=True)
+                    console.print(f"  SendInput: {'[green]OK[/green]' if ok1 else '[red]FAILED[/red]'}")
+                    if not ok1:
+                        console.print("  [dim]Trying WM_CHAR...[/dim]")
+                        ok2 = wm_char_type_into(app_title, test_text, new_line_first=True)
+                        console.print(f"  WM_CHAR  : {'[green]OK[/green]' if ok2 else '[red]FAILED[/red]'}")
+                    if not ok1:
+                        console.print("  [dim]Trying clipboard paste fallback...[/dim]")
+                        focused = hands.click_into_window(app_title)
+                        console.print(f"  Focus    : {'[green]OK[/green]' if focused else '[red]FAILED — window not found[/red]'}")
+                        if focused:
+                            import pyperclip, pyautogui
+                            pyperclip.copy(test_text)
+                            time.sleep(0.3)
+                            pyautogui.hotkey("ctrl", "v")
+                            console.print("  Clipboard: [green]pasted[/green]")
                 elif cmd == "/type":
                     use_mic = False
                     console.print("  [dim]Switched to keyboard input.[/dim]")
