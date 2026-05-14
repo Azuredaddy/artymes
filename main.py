@@ -114,12 +114,13 @@ def run():
     if latest:
         console.print(f"  [yellow]Update available: v{latest} — run the installer to upgrade.[/yellow]\n")
 
-    from config import ANTHROPIC_API_KEY
+    from config import ANTHROPIC_API_KEY, ENV_PATH
     if not ANTHROPIC_API_KEY or not ANTHROPIC_API_KEY.startswith("sk-"):
         console.print(Panel(
             "  [red]ANTHROPIC_API_KEY is missing.[/red]\n\n"
-            "  Open [cyan].env[/cyan] in your Artymes folder and paste your key:\n"
-            "  Get it from [cyan]console.anthropic.com[/cyan]",
+            f"  Looking for .env at:\n  [cyan]{ENV_PATH}[/cyan]\n\n"
+            "  Open that file and paste your key from [cyan]console.anthropic.com[/cyan]\n"
+            "  Save as UTF-8 [bold]without BOM[/bold] (use VS Code or Notepad++, not Notepad)",
             title="Setup Required", style="red"
         ))
         input("\nPress Enter to exit.")

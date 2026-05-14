@@ -2,7 +2,7 @@
 # Run with: iwr -useb https://raw.githubusercontent.com/Azuredaddy/artymes/main/installer/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
-$ArtyVersion = "1.4.2"
+$ArtyVersion = "1.4.3"
 $InstallDir = "C:\Artymes"
 
 function Write-Header {
@@ -178,7 +178,8 @@ WAKE_WORD=hey arty
 MEMORY_DB_PATH=./data/arty_memory.db
 CHROMA_PATH=./data/chroma
 "@
-$envContent | Set-Content "$InstallDir\.env" -Encoding UTF8
+# Write without BOM — PowerShell 5 Set-Content UTF8 adds BOM which breaks python-dotenv
+[System.IO.File]::WriteAllText("$InstallDir\.env", $envContent, (New-Object System.Text.UTF8Encoding $false))
 Write-OK "Configuration written."
 
 # -- Desktop shortcut ---------------------------------------------------------

@@ -1,11 +1,13 @@
 import os
 from dotenv import load_dotenv
 
-ARTY_VERSION = "1.4.2"
+ARTY_VERSION = "1.4.3"
+VERSION = ARTY_VERSION  # alias used by check_setup.py
 
 # Always load .env from the same folder as this file, regardless of working directory
 _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-load_dotenv(dotenv_path=_env_path)
+ENV_PATH = _env_path  # exported so check_setup.py can show the path
+load_dotenv(dotenv_path=_env_path, encoding="utf-8-sig")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip().strip('"').strip("'")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "").strip().strip('"').strip("'")
