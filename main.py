@@ -278,8 +278,10 @@ def run():
     session_id = str(uuid.uuid4())
     brain.set_session(session_id)
 
+    from hands.control import _HAS_WINCTRL, _HAS_GW, _HAS_CLIPBOARD
     monitor_count = eyes.get_monitor_count()
-    console.print(f"[bold green]ARTY is online.[/bold green]  Session: {session_id[:8]}  Monitors: {monitor_count}\n")
+    win32_status = "[green]win32 ready[/green]" if _HAS_WINCTRL else "[yellow]win32 unavailable[/yellow]"
+    console.print(f"[bold green]ARTY is online.[/bold green]  Session: {session_id[:8]}  Monitors: {monitor_count}  {win32_status}\n")
     console.print(f"  [green]ARTY:[/green] {ARTY_GREETING}")
     voice.speak(ARTY_GREETING)
 

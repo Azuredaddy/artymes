@@ -146,12 +146,18 @@ class ArtyHands:
             text = params.get("text", "")
             new_line = params.get("new_line", False)
             if not self.type_into_window(app_title, text, new_line):
-                # Fallback to clipboard paste at current focus
+                # Fallback: FOCUS the window first, then paste via clipboard
+                self.click_into_window(app_title)
+                time.sleep(0.5)
+                if new_line:
+                    pyautogui.hotkey("ctrl", "end")
+                    pyautogui.press("enter")
+                    time.sleep(0.1)
                 if _HAS_CLIPBOARD:
                     pyperclip.copy(text)
                     pyautogui.hotkey("ctrl", "v")
                 else:
-                    pyautogui.typewrite(text, interval=0.04)
+                    pyautogui.typewrite(text, interval=0.05)
         elif atype == "focus_window":
             self.click_into_window(params.get("title", ""))
         elif atype == "click":

@@ -163,7 +163,7 @@ class ArtyComputerUse:
                 pyperclip.copy(text)
                 pyautogui.hotkey("ctrl", "v")
             else:
-                pyautogui.typewrite(text, interval=0.04)
+                pyautogui.typewrite(text, interval=0.05)
         elif action == "scroll":
             direction = params.get("direction", "down")
             amount = int(params.get("amount", 3))
