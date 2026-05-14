@@ -91,10 +91,23 @@ $files = @(
     "hands/__init__.py", "hands/control.py", "hands/win_control.py"
 )
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$downloadErrors = @()
 foreach ($file in $files) {
     $dir = Split-Path "$InstallDir\$file" -Parent
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    Invoke-WebRequest -Uri "$RepoBase/$file?v=$cacheBust" -OutFile "$InstallDir\$file"
+    $uri = "$RepoBase/$file?v=$cacheBust"
+    try {
+        Invoke-WebRequest -Uri $uri -OutFile "$InstallDir\$file" -UseBasicParsing -ErrorAction Stop
+    } catch {
+        Write-Fail "Failed: $file ($_)"
+        $downloadErrors += $file
+    }
+}
+if ($downloadErrors.Count -gt 0) {
+    Write-Fail "Could not download: $($downloadErrors -join ', ')"
+    Write-Fail "Check your internet connection and try again."
+    Read-Host "Press Enter to exit"
+    exit 1
 }
 Write-OK "Files downloaded."
 
