@@ -40,6 +40,7 @@ COMMANDS = {
     "/type":    "Type instead of using the mic this session",
     "/mic":     "Switch back to mic input",
     "/version": "Show ARTY version and check for updates",
+    "/test":    "Test typing: /test <app title> | <text to type>",
     "/quit":    "Shut down ARTY",
 }
 
@@ -53,6 +54,9 @@ CONFIRM_SIGNALS = {
     "yeah", "yes", "yep", "sure", "go on", "go ahead", "try again",
     "have another go", "try it again", "give it another go", "alright",
     "ok", "okay", "please", "do it", "crack on",
+    "try once more", "one more time", "once more", "another go",
+    "again", "retry", "try once", "try one more", "have a go again",
+    "while more time", "more time", "try more", "give it another",
 }
 SAVE_SIGNALS = {"save", "save that", "remember that", "save it", "keep that"}
 EXIT_SIGNALS = {"exit training", "stop training", "end training", "done training", "leave training", "finish training"}
@@ -322,6 +326,25 @@ def run():
                             voice.speak(f"I don't have a procedure called {proc_name} — or it didn't work.")
                 elif cmd == "/version":
                     show_version(ARTY_VERSION, GITHUB_VERSION_URL, voice)
+                elif cmd.startswith("/test"):
+                    # /test <app title> | <text>  — directly test win32 typing
+                    arg = user_input[5:].strip()
+                    if "|" in arg:
+                        app_title, test_text = arg.split("|", 1)
+                        app_title = app_title.strip()
+                        test_text = test_text.strip()
+                    else:
+                        app_title = arg.strip() or "Notepad"
+                        test_text = "ARTY test"
+                    console.print(f"  [dim]Testing win32 type into '{app_title}': '{test_text}'[/dim]")
+                    ok = hands.type_into_window(app_title, test_text, new_line_first=True)
+                    if ok:
+                        console.print("  [green]win32 type: OK[/green]")
+                    else:
+                        console.print("  [red]win32 type: FAILED — checking fallback[/red]")
+                        # List visible windows to help debug title matching
+                        wins = hands.list_windows()
+                        console.print(f"  [dim]Visible windows: {wins[:10]}[/dim]")
                 elif cmd == "/type":
                     use_mic = False
                     console.print("  [dim]Switched to keyboard input.[/dim]")
