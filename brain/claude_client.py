@@ -61,10 +61,29 @@ class ArtyBrain:
 
         return system, messages
 
-    def think_streaming(self, user_input: str, voice) -> tuple[str, bool]:
-        """Stream Claude's reply, speaking each sentence as it arrives."""
+    def think_streaming(self, user_input: str, voice, screenshot_b64: str = None) -> tuple[str, bool]:
+        """Stream Claude's reply, speaking each sentence as it arrives.
+        Pass screenshot_b64 to give ARTY vision of the current screen."""
         self.memory.save_message("user", user_input, self.session_id)
         system, messages = self._build_messages(user_input)
+
+        # Inject the screenshot into the current user message so ARTY can see the screen
+        if screenshot_b64 and messages and messages[-1]["role"] == "user":
+            plain_text = str(messages[-1]["content"])
+            messages[-1] = {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": screenshot_b64,
+                        },
+                    },
+                    {"type": "text", "text": plain_text},
+                ],
+            }
 
         full_reply = ""
         buffer = ""

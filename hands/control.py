@@ -1,9 +1,14 @@
 import pyautogui
 import subprocess
 import time
+try:
+    import pyperclip
+    _HAS_CLIPBOARD = True
+except ImportError:
+    _HAS_CLIPBOARD = False
 
 pyautogui.FAILSAFE = True
-pyautogui.PAUSE = 0.05
+pyautogui.PAUSE = 0.15
 
 WINDOWS_APPS = {
     "notepad": "notepad.exe",
@@ -36,7 +41,12 @@ class ArtyHands:
         pyautogui.moveTo(x, y, duration=duration)
 
     def type_text(self, text: str, interval: float = 0.04):
-        pyautogui.typewrite(text, interval=interval)
+        if _HAS_CLIPBOARD:
+            # Clipboard paste is faster and handles all characters reliably
+            pyperclip.copy(text)
+            pyautogui.hotkey("ctrl", "v")
+        else:
+            pyautogui.typewrite(text, interval=interval)
 
     def press(self, key: str):
         pyautogui.press(key)
@@ -51,15 +61,15 @@ class ArtyHands:
         exe = WINDOWS_APPS.get(app_name.lower().strip())
         if exe:
             subprocess.Popen([exe])
-            time.sleep(1.2)
+            time.sleep(2.0)  # wait for window to fully appear and focus
         else:
             # Fall back to Windows search
             pyautogui.hotkey("win")
-            time.sleep(0.6)
-            pyautogui.typewrite(app_name, interval=0.05)
-            time.sleep(0.5)
+            time.sleep(0.8)
+            pyautogui.typewrite(app_name, interval=0.06)
+            time.sleep(0.8)
             pyautogui.press("enter")
-            time.sleep(1.2)
+            time.sleep(2.0)
 
     def screen_size(self) -> tuple:
         return pyautogui.size()

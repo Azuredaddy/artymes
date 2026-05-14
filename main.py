@@ -41,7 +41,12 @@ COMMANDS = {
     "/quit":    "Shut down ARTY",
 }
 
-TRY_SIGNALS = {"your turn", "you try", "have a go", "try it", "give it a go", "now you", "off you go"}
+TRY_SIGNALS = {
+    "your turn", "you try", "have a go", "try it", "give it a go",
+    "now you", "off you go", "go for it", "go on then", "your time",
+    "have a try", "try now", "give that a go", "you have a go",
+    "can you try", "you do it", "try that", "go ahead",
+}
 SAVE_SIGNALS = {"save", "save that", "remember that", "save it", "keep that"}
 EXIT_SIGNALS = {"exit training", "stop training", "end training", "done training", "leave training", "finish training"}
 
@@ -129,8 +134,8 @@ def _get_input(use_mic, ears):
 
 
 def _is_signal(text: str, signals: set) -> bool:
-    t = text.lower().strip().rstrip(".")
-    return any(t == s or t.endswith(s) for s in signals)
+    t = text.lower().strip().strip(".,!? ")
+    return any(t == s or t.endswith(s) or s in t for s in signals)
 
 
 def training_mode(trainer, brain, voice, use_mic, ears):
@@ -322,7 +327,8 @@ def run():
                         training_mode(trainer, brain, voice, use_mic, ears)
                 continue
 
-            reply, needs_help = brain.think_streaming(user_input, voice)
+            screenshot_b64 = eyes.capture_all()
+            reply, needs_help = brain.think_streaming(user_input, voice, screenshot_b64=screenshot_b64)
             console.print(f"  [green]ARTY:[/green] {reply}")
 
             if needs_help:
