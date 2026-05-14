@@ -49,6 +49,11 @@ TRY_SIGNALS = {
     "have a try", "try now", "give that a go", "you have a go",
     "can you try", "you do it", "try that", "go ahead",
 }
+CONFIRM_SIGNALS = {
+    "yeah", "yes", "yep", "sure", "go on", "go ahead", "try again",
+    "have another go", "try it again", "give it another go", "alright",
+    "ok", "okay", "please", "do it", "crack on",
+}
 SAVE_SIGNALS = {"save", "save that", "remember that", "save it", "keep that"}
 EXIT_SIGNALS = {"exit training", "stop training", "end training", "done training", "leave training", "finish training"}
 
@@ -275,6 +280,7 @@ def run():
     voice.speak(ARTY_GREETING)
 
     use_mic = True
+    last_action_goal = None
 
     while True:
         try:
@@ -327,6 +333,7 @@ def run():
             console.print(f"\n  [bold white]You:[/bold white] {user_input}")
 
             if _is_computer_action(user_input):
+                last_action_goal = user_input
                 ack = random.choice(["On it.", "Sure, give me a sec.", "Right, on it.", "Yep, doing that now."])
                 console.print(f"  [green]ARTY:[/green] {ack}")
                 voice.speak(ack)
@@ -342,6 +349,22 @@ def run():
                     confirm = _get_input(use_mic, ears)
                     if confirm and any(w in confirm.lower() for w in ["yes", "yeah", "sure", "go on", "yep", "ok", "alright"]):
                         training_mode(trainer, brain, voice, use_mic, ears)
+                else:
+                    last_action_goal = None
+                continue
+
+            # Retry last action on confirmation phrase
+            if last_action_goal and _is_signal(user_input.lower(), CONFIRM_SIGNALS):
+                ack = random.choice(["Right, trying again.", "On it, another go.", "Let me try that again."])
+                console.print(f"  [green]ARTY:[/green] {ack}")
+                voice.speak(ack)
+                success = trainer.execute_task(last_action_goal)
+                if success:
+                    last_action_goal = None
+                else:
+                    reply = "Still struggling with that one. Want to go into training mode so you can show me?"
+                    console.print(f"  [green]ARTY:[/green] {reply}")
+                    voice.speak(reply)
                 continue
 
             screenshot_b64 = eyes.capture_all()

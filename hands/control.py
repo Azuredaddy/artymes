@@ -13,6 +13,14 @@ try:
 except ImportError:
     _HAS_GW = False
 
+try:
+    from hands.win_control import ArtyWinControl
+    _win_ctrl = ArtyWinControl()
+    _HAS_WINCTRL = True
+except Exception:
+    _win_ctrl = None
+    _HAS_WINCTRL = False
+
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.15
 
@@ -107,6 +115,18 @@ class ArtyHands:
         pyautogui.click(cx, cy)
         return True
 
+    def type_into_window(self, title_contains: str, text: str, new_line_first: bool = False) -> bool:
+        """Type into a named window using pywinauto — no coordinates needed."""
+        if _HAS_WINCTRL:
+            return _win_ctrl.type_into(title_contains, text, new_line_first)
+        return False
+
+    def click_window(self, title_contains: str, control: str = None) -> bool:
+        """Click into a named window's text area using pywinauto."""
+        if _HAS_WINCTRL:
+            return _win_ctrl.click_control(title_contains, control)
+        return False
+
     def list_windows(self) -> list[str]:
         if not _HAS_GW:
             return []
@@ -121,7 +141,18 @@ class ArtyHands:
         params = action.get("params", {})
         narration = action.get("narration", f"Executing {atype}")
 
-        if atype == "focus_window":
+        if atype == "direct_type":
+            app_title = params.get("app", "")
+            text = params.get("text", "")
+            new_line = params.get("new_line", False)
+            if not self.type_into_window(app_title, text, new_line):
+                # Fallback to clipboard paste at current focus
+                if _HAS_CLIPBOARD:
+                    pyperclip.copy(text)
+                    pyautogui.hotkey("ctrl", "v")
+                else:
+                    pyautogui.typewrite(text, interval=0.04)
+        elif atype == "focus_window":
             self.click_into_window(params.get("title", ""))
         elif atype == "click":
             self.click(params["x"], params["y"])
