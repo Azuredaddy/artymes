@@ -1,25 +1,22 @@
 """
 ArtyWinControl — Windows-native app control.
 
-Input strategy (in order):
-1. PowerShell SendKeys   — built into Windows, runs in own process, most reliable
-2. WM_CHAR to Edit ctrl  — classic Win32 apps (Notepad old, etc.)
-3. pywinauto UIA         — accessibility fallback
+Strategy:
+1. win32 GetWindowRect → click content area → clipboard paste  (primary)
+2. WM_CHAR to Edit ctrl                                         (classic apps)
+3. pywinauto UIA                                                (fallback)
 """
-import subprocess
 import time
 import os as _os
-from rich.console import Console as _con
 
 _DEBUG = _os.environ.get("ARTY_DEBUG", "0") == "1"
 def _dbg(msg: str):
     if _DEBUG:
-        _con().print(f"  [dim cyan][WIN] {msg}[/dim cyan]")
+        print(f"  [WIN] {msg}", flush=True)
 
-# ── win32 imports (optional) ──────────────────────────────────────────────────
+# ── optional imports ──────────────────────────────────────────────────────────
 try:
-    import win32gui
-    import win32con
+    import win32gui, win32con
     _HAS_WIN32 = True
 except ImportError:
     _HAS_WIN32 = False
@@ -31,96 +28,106 @@ try:
 except ImportError:
     _HAS_PYWINAUTO = False
 
+try:
+    import pyautogui
+    _HAS_PYAUTOGUI = True
+except ImportError:
+    _HAS_PYAUTOGUI = False
+
+try:
+    import pyperclip
+    _HAS_CLIP = True
+except ImportError:
+    _HAS_CLIP = False
+
 
 # ── window finding ────────────────────────────────────────────────────────────
 
-def _find_window_handle(title_contains: str) -> int:
+def _find_hwnd(title_contains: str) -> int:
     if not _HAS_WIN32:
-        _dbg("win32 not available")
+        _dbg("win32 unavailable")
         return 0
     result = []
-    all_titles = []
+    all_visible = []
     def _cb(hwnd, _):
         if win32gui.IsWindowVisible(hwnd):
             t = win32gui.GetWindowText(hwnd)
             if t:
-                all_titles.append(t)
+                all_visible.append(t)
             if title_contains.lower() in t.lower():
                 result.append(hwnd)
     win32gui.EnumWindows(_cb, None)
     if result:
-        _dbg(f"found hwnd={result[0]} title='{win32gui.GetWindowText(result[0])}'")
+        _dbg(f"found '{win32gui.GetWindowText(result[0])}' hwnd={result[0]}")
     else:
-        _dbg(f"no match for '{title_contains}'. visible: {all_titles[:6]}")
+        _dbg(f"no match for '{title_contains}'. windows={all_visible[:8]}")
     return result[0] if result else 0
 
 
-def _find_edit_handle(parent_hwnd: int) -> int:
-    if not _HAS_WIN32 or not parent_hwnd:
-        return 0
-    for cls in ("Edit", "RichEdit20W", "RichEditD2DPT", "RICHEDIT50W", "Scintilla"):
-        h = win32gui.FindWindowEx(parent_hwnd, None, cls, None)
-        if h:
-            return h
-    return 0
+def _content_center(hwnd: int) -> tuple:
+    """Return (cx, cy) in the content area of the window (below title bar)."""
+    rect = win32gui.GetWindowRect(hwnd)
+    left, top, right, bottom = rect
+    cx = (left + right) // 2
+    cy = top + 60 + (bottom - top - 60) // 2  # skip ~60px title bar
+    _dbg(f"rect={rect} content_center=({cx},{cy})")
+    return cx, cy
 
 
-# ── Strategy 1: PowerShell SendKeys ──────────────────────────────────────────
+# ── Strategy 1: GetWindowRect → click → clipboard paste ──────────────────────
 
-def _escape_sendkeys(text: str) -> str:
-    """Escape special SendKeys characters."""
-    special = {'+': '{+}', '^': '{^}', '%': '{%}', '~': '{~}',
-               '(': '{(}', ')': '{)}', '[': '{[}', ']': '{]}',
-               '{': '{{', '}': '}}'}
-    return ''.join(special.get(c, c) for c in text)
-
-
-def ps_type_into(title_contains: str, text: str, new_line_first: bool = False) -> bool:
-    """Use PowerShell SendKeys to type into a named window. No focus/coord issues."""
-    _dbg(f"ps_type_into('{title_contains}', '{text[:30]}', new_line={new_line_first})")
-    escaped = _escape_sendkeys(text)
-    nl = "~" if new_line_first else ""   # ~ is Enter in SendKeys
-    ps = f"""
-Add-Type -AssemblyName Microsoft.VisualBasic
-Add-Type -AssemblyName System.Windows.Forms
-$w = Get-Process | Where-Object {{ $_.MainWindowTitle -like '*{title_contains}*' }} | Select-Object -First 1
-if (-not $w) {{ exit 1 }}
-[Microsoft.VisualBasic.Interaction]::AppActivate($w.Id)
-Start-Sleep -Milliseconds 600
-[System.Windows.Forms.SendKeys]::SendWait('{nl}{escaped}')
-exit 0
-"""
+def click_paste_type_into(title_contains: str, text: str, new_line_first: bool = False) -> bool:
+    _dbg(f"click_paste: target='{title_contains}' text='{text[:40]}'")
+    if not (_HAS_WIN32 and _HAS_PYAUTOGUI and _HAS_CLIP):
+        missing = [n for n,v in [("win32",_HAS_WIN32),("pyautogui",_HAS_PYAUTOGUI),("pyperclip",_HAS_CLIP)] if not v]
+        _dbg(f"missing deps: {missing}")
+        return False
+    hwnd = _find_hwnd(title_contains)
+    if not hwnd:
+        return False
+    cx, cy = _content_center(hwnd)
     try:
-        r = subprocess.run(
-            ["powershell", "-WindowStyle", "Hidden", "-NonInteractive", "-Command", ps],
-            capture_output=True, timeout=10
-        )
-        _dbg(f"ps_type_into returncode={r.returncode} stderr={r.stderr.decode(errors='ignore')[:100]}")
-        return r.returncode == 0
+        win32gui.ShowWindow(hwnd, 9)        # SW_RESTORE
+        win32gui.SetForegroundWindow(hwnd)
+        time.sleep(0.5)
+        pyautogui.click(cx, cy)
+        time.sleep(0.4)
+        _dbg(f"clicked ({cx},{cy}), pasting text")
+        if new_line_first:
+            pyautogui.hotkey("ctrl", "end")
+            pyautogui.press("enter")
+            time.sleep(0.1)
+        pyperclip.copy(text)
+        pyautogui.hotkey("ctrl", "v")
+        _dbg("click_paste done")
+        return True
     except Exception as e:
-        _dbg(f"ps_type_into exception: {e}")
+        _dbg(f"click_paste error: {e}")
         return False
 
 
 # ── Strategy 2: WM_CHAR (classic Win32 edit controls) ────────────────────────
 
 def wm_char_type_into(title_contains: str, text: str, new_line_first: bool = False) -> bool:
-    """Send WM_CHAR to an Edit control — no focus needed, classic apps only."""
-    _dbg(f"wm_char_type_into('{title_contains}', '{text[:30]}')")
+    _dbg(f"wm_char: target='{title_contains}'")
     if not _HAS_WIN32:
-        _dbg("wm_char: win32 unavailable")
         return False
-    hwnd = _find_window_handle(title_contains)
+    hwnd = _find_hwnd(title_contains)
     if not hwnd:
         return False
-    edit = _find_edit_handle(hwnd)
+    edit = 0
+    for cls in ("Edit", "RichEdit20W", "RichEditD2DPT", "RICHEDIT50W", "Scintilla"):
+        edit = win32gui.FindWindowEx(hwnd, None, cls, None)
+        if edit:
+            break
     target = edit if edit else hwnd
+    _dbg(f"wm_char target hwnd={target} (edit={edit})")
     try:
         win32gui.ShowWindow(hwnd, 9)
         win32gui.SetForegroundWindow(hwnd)
         time.sleep(0.4)
     except Exception as e:
-        _dbg(f"wm_char foreground failed: {e}")
+        _dbg(f"wm_char foreground: {e}")
     if new_line_first:
         win32gui.SendMessage(target, win32con.WM_KEYDOWN, win32con.VK_END, 0)
         win32gui.SendMessage(target, win32con.WM_CHAR, ord('\r'), 0)
@@ -135,23 +142,7 @@ def wm_char_type_into(title_contains: str, text: str, new_line_first: bool = Fal
 # ── Public helpers ────────────────────────────────────────────────────────────
 
 def win32_focus(title_contains: str) -> bool:
-    # Try PowerShell AppActivate first (more reliable than SetForegroundWindow)
-    ps = f"""
-Add-Type -AssemblyName Microsoft.VisualBasic
-$w = Get-Process | Where-Object {{ $_.MainWindowTitle -like '*{title_contains}*' }} | Select-Object -First 1
-if ($w) {{ [Microsoft.VisualBasic.Interaction]::AppActivate($w.Id); exit 0 }} else {{ exit 1 }}
-"""
-    try:
-        r = subprocess.run(["powershell", "-WindowStyle", "Hidden", "-NonInteractive", "-Command", ps],
-                           capture_output=True, timeout=5)
-        if r.returncode == 0:
-            time.sleep(0.4)
-            return True
-    except Exception:
-        pass
-    if not _HAS_WIN32:
-        return False
-    hwnd = _find_window_handle(title_contains)
+    hwnd = _find_hwnd(title_contains)
     if not hwnd:
         return False
     try:
@@ -168,10 +159,8 @@ def win32_list_windows() -> list:
         return []
     titles = []
     def _cb(hwnd, _):
-        if win32gui.IsWindowVisible(hwnd):
-            t = win32gui.GetWindowText(hwnd)
-            if t:
-                titles.append(t)
+        if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd):
+            titles.append(win32gui.GetWindowText(hwnd))
     win32gui.EnumWindows(_cb, None)
     return titles
 
@@ -195,10 +184,10 @@ class ArtyWinControl:
         return win32_focus(title_contains)
 
     def type_into(self, title_contains: str, text: str, new_line_first: bool = False) -> bool:
-        # Strategy 1: PowerShell SendKeys (most reliable)
-        if ps_type_into(title_contains, text, new_line_first):
+        # Strategy 1: click content area then clipboard paste
+        if click_paste_type_into(title_contains, text, new_line_first):
             return True
-        # Strategy 2: WM_CHAR (classic Win32)
+        # Strategy 2: WM_CHAR
         if wm_char_type_into(title_contains, text, new_line_first):
             return True
         # Strategy 3: pywinauto
@@ -214,11 +203,10 @@ class ArtyWinControl:
             if new_line_first:
                 send_keys("{END}{ENTER}")
                 time.sleep(0.1)
-            try:
-                import pyperclip
+            if _HAS_CLIP:
                 pyperclip.copy(text)
                 send_keys("^v")
-            except Exception:
+            else:
                 send_keys(text, with_spaces=True)
             return True
         except Exception:

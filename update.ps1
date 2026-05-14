@@ -11,7 +11,7 @@ Write-Host ""
 
 $files = @(
     "main.py", "config.py", "requirements.txt", "version.txt",
-    "run_arty.bat", "run_arty_debug.bat",
+    "run_arty.bat", "run_arty_debug.bat", "test_input.py",
     "brain/__init__.py", "brain/claude_client.py", "brain/memory.py",
     "brain/personality.py", "brain/context.py", "brain/trainer.py", "brain/computer_use.py",
     "voice/__init__.py", "voice/stt.py", "voice/tts.py",
