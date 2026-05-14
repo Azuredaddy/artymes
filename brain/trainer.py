@@ -91,9 +91,10 @@ class TrainingSession:
         console.print(f"\n  [yellow]ARTY attempting: {self.topic}[/yellow]")
 
         action_history = []
+        focus_target = None  # tracks last focused/typed-into app for per-monitor capture
 
         for step_num in range(max_steps):
-            screenshot_b64, x_scale, y_scale = self.eyes.capture_all_with_scale()
+            screenshot_b64, x_off, y_off, x_scale, y_scale = self.eyes.capture_with_focus(focus_target)
 
             # Build history text so Claude knows what's already been done
             history_text = ""
@@ -156,15 +157,23 @@ class TrainingSession:
                     self.voice.speak("I seem to be going in circles on this one.")
                     return False
 
-            # Scale coordinates from Claude's image space → real screen pixels
+            # Track focus target for per-monitor screenshot on next step
             params = action.get("params", {})
+            if atype in ("focus_window", "close") and params.get("title"):
+                focus_target = params["title"]
+            elif atype == "direct_type" and params.get("app"):
+                focus_target = params["app"]
+            elif atype == "hotkey" and params.get("window"):
+                focus_target = params["window"]
+
+            # Scale coordinates: Claude's image coords → real screen pixels (+ monitor offset)
             if atype in ("click", "double_click", "right_click", "move") and "x" in params:
-                params["x"] = int(params["x"] * x_scale)
-                params["y"] = int(params["y"] * y_scale)
+                params["x"] = int(params["x"] * x_scale) + x_off
+                params["y"] = int(params["y"] * y_scale) + y_off
                 action["params"] = params
             elif atype == "scroll" and "x" in params:
-                params["x"] = int(params["x"] * x_scale)
-                params["y"] = int(params["y"] * y_scale)
+                params["x"] = int(params["x"] * x_scale) + x_off
+                params["y"] = int(params["y"] * y_scale) + y_off
                 action["params"] = params
 
             console.print(f"  [dim]  → {atype} {params}[/dim]")

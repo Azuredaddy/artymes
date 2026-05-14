@@ -49,6 +49,32 @@ class ArtyEyes:
         """Capture all monitors and return (base64_jpeg, x_scale, y_scale)."""
         return self._grab_with_scale(self.sct.monitors[0])
 
+    def capture_with_focus(self, title_contains: str = None) -> tuple:
+        """Capture the monitor containing the named window (or all monitors as fallback).
+        Returns (b64, x_offset, y_offset, x_scale, y_scale).
+        x_offset/y_offset are the monitor's top-left in global screen space."""
+        if title_contains:
+            try:
+                import win32gui
+                hwnd = 0
+                def _cb(h, _):
+                    nonlocal hwnd
+                    if not hwnd and win32gui.IsWindowVisible(h):
+                        if title_contains.lower() in win32gui.GetWindowText(h).lower():
+                            hwnd = h
+                win32gui.EnumWindows(_cb, None)
+                if hwnd:
+                    rect = win32gui.GetWindowRect(hwnd)
+                    cx = (rect[0] + rect[2]) // 2
+                    for m in self.sct.monitors[1:]:
+                        if m['left'] <= cx < m['left'] + m['width']:
+                            b64, xs, ys = self._grab_with_scale(m)
+                            return b64, m['left'], m['top'], xs, ys
+            except Exception:
+                pass
+        b64, xs, ys = self._grab_with_scale(self.sct.monitors[0])
+        return b64, 0, 0, xs, ys
+
     def capture_primary_native(self) -> tuple:
         """Capture primary monitor and return (base64_jpeg, real_width, real_height).
         Used by Computer Use API — Claude needs real pixel dimensions for coordinates."""
