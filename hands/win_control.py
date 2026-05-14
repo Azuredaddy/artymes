@@ -2,84 +2,24 @@
 ArtyWinControl — Windows-native app control.
 
 Input strategy (in order):
-1. SetForegroundWindow + SendInput  (universal — works on modern WinUI/UWP/Electron)
-2. WM_CHAR to Edit handle           (classic Win32 apps, no focus needed)
-3. pywinauto accessibility API      (last resort)
+1. PowerShell SendKeys   — built into Windows, runs in own process, most reliable
+2. WM_CHAR to Edit ctrl  — classic Win32 apps (Notepad old, etc.)
+3. pywinauto UIA         — accessibility fallback
 """
-import ctypes
-import ctypes.wintypes as wintypes
+import subprocess
 import time
-
-# ── SendInput structs (no extra dependencies — pure ctypes) ───────────────────
-INPUT_KEYBOARD   = 1
-KEYEVENTF_UNICODE = 0x0004
-KEYEVENTF_KEYUP  = 0x0002
-VK_RETURN = 0x0D
-VK_END    = 0x23
-
-class KEYBDINPUT(ctypes.Structure):
-    _fields_ = [
-        ("wVk",         wintypes.WORD),
-        ("wScan",       wintypes.WORD),
-        ("dwFlags",     wintypes.DWORD),
-        ("time",        wintypes.DWORD),
-        ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG)),
-    ]
-
-class _INPUT_UNION(ctypes.Union):
-    _fields_ = [("ki", KEYBDINPUT)]
-
-class INPUT(ctypes.Structure):
-    _fields_ = [("type", wintypes.DWORD), ("_input", _INPUT_UNION)]
-
-_send = ctypes.windll.user32.SendInput
-
-# Debug helper — set ARTY_DEBUG=1 env var to enable
 import os as _os
+from rich.console import Console as _con
+
 _DEBUG = _os.environ.get("ARTY_DEBUG", "0") == "1"
 def _dbg(msg: str):
     if _DEBUG:
-        print(f"  [WIN] {msg}", flush=True)
-
-
-def _ki(vk=0, scan=0, flags=0):
-    return KEYBDINPUT(vk, scan, flags, 0, None)
-
-
-def _sendinput_text(text: str):
-    """Inject text into the focused window via SendInput Unicode events."""
-    inputs = []
-    for ch in text:
-        code = ord(ch)
-        if ch in ('\r', '\n'):
-            inputs += [
-                INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=_ki(VK_RETURN, 0, 0))),
-                INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=_ki(VK_RETURN, 0, KEYEVENTF_KEYUP))),
-            ]
-        else:
-            inputs += [
-                INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=_ki(0, code, KEYEVENTF_UNICODE))),
-                INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=_ki(0, code, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP))),
-            ]
-    if not inputs:
-        return
-    arr = (INPUT * len(inputs))(*inputs)
-    _send(len(inputs), arr, ctypes.sizeof(INPUT))
-
-
-def _press_key(vk: int):
-    arr = (INPUT * 2)(
-        INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=_ki(vk, 0, 0))),
-        INPUT(INPUT_KEYBOARD, _INPUT_UNION(ki=_ki(vk, 0, KEYEVENTF_KEYUP))),
-    )
-    _send(2, arr, ctypes.sizeof(INPUT))
-
+        _con().print(f"  [dim cyan][WIN] {msg}[/dim cyan]")
 
 # ── win32 imports (optional) ──────────────────────────────────────────────────
 try:
     import win32gui
     import win32con
-    import win32com.client
     _HAS_WIN32 = True
 except ImportError:
     _HAS_WIN32 = False
@@ -96,7 +36,7 @@ except ImportError:
 
 def _find_window_handle(title_contains: str) -> int:
     if not _HAS_WIN32:
-        _dbg("win32 not available — pywin32 not installed")
+        _dbg("win32 not available")
         return 0
     result = []
     all_titles = []
@@ -109,9 +49,9 @@ def _find_window_handle(title_contains: str) -> int:
                 result.append(hwnd)
     win32gui.EnumWindows(_cb, None)
     if result:
-        _dbg(f"found window '{win32gui.GetWindowText(result[0])}' (hwnd={result[0]})")
+        _dbg(f"found hwnd={result[0]} title='{win32gui.GetWindowText(result[0])}'")
     else:
-        _dbg(f"no window matching '{title_contains}'. visible: {all_titles[:8]}")
+        _dbg(f"no match for '{title_contains}'. visible: {all_titles[:6]}")
     return result[0] if result else 0
 
 
@@ -125,56 +65,62 @@ def _find_edit_handle(parent_hwnd: int) -> int:
     return 0
 
 
-def _foreground(hwnd: int) -> bool:
-    """Bring hwnd to the foreground. Returns True on success."""
+# ── Strategy 1: PowerShell SendKeys ──────────────────────────────────────────
+
+def _escape_sendkeys(text: str) -> str:
+    """Escape special SendKeys characters."""
+    special = {'+': '{+}', '^': '{^}', '%': '{%}', '~': '{~}',
+               '(': '{(}', ')': '{)}', '[': '{[}', ']': '{]}',
+               '{': '{{', '}': '}}'}
+    return ''.join(special.get(c, c) for c in text)
+
+
+def ps_type_into(title_contains: str, text: str, new_line_first: bool = False) -> bool:
+    """Use PowerShell SendKeys to type into a named window. No focus/coord issues."""
+    _dbg(f"ps_type_into('{title_contains}', '{text[:30]}', new_line={new_line_first})")
+    escaped = _escape_sendkeys(text)
+    nl = "~" if new_line_first else ""   # ~ is Enter in SendKeys
+    ps = f"""
+Add-Type -AssemblyName Microsoft.VisualBasic
+Add-Type -AssemblyName System.Windows.Forms
+$w = Get-Process | Where-Object {{ $_.MainWindowTitle -like '*{title_contains}*' }} | Select-Object -First 1
+if (-not $w) {{ exit 1 }}
+[Microsoft.VisualBasic.Interaction]::AppActivate($w.Id)
+Start-Sleep -Milliseconds 600
+[System.Windows.Forms.SendKeys]::SendWait('{nl}{escaped}')
+exit 0
+"""
     try:
-        win32gui.ShowWindow(hwnd, 9)   # SW_RESTORE
-        win32gui.SetForegroundWindow(hwnd)
-        time.sleep(0.4)
-        _dbg(f"SetForegroundWindow({hwnd}) OK")
-        return True
+        r = subprocess.run(
+            ["powershell", "-WindowStyle", "Hidden", "-NonInteractive", "-Command", ps],
+            capture_output=True, timeout=10
+        )
+        _dbg(f"ps_type_into returncode={r.returncode} stderr={r.stderr.decode(errors='ignore')[:100]}")
+        return r.returncode == 0
     except Exception as e:
-        _dbg(f"SetForegroundWindow({hwnd}) FAILED: {e}")
+        _dbg(f"ps_type_into exception: {e}")
         return False
 
 
-# ── primary input: SendInput (works on modern WinUI/UWP/Electron apps) ────────
-
-def sendinput_type_into(title_contains: str, text: str, new_line_first: bool = False) -> bool:
-    """Focus window then inject text via SendInput. Works on any modern app."""
-    _dbg(f"sendinput_type_into('{title_contains}', '{text[:30]}', new_line={new_line_first})")
-    hwnd = _find_window_handle(title_contains)
-    if not hwnd:
-        _dbg("sendinput: window not found — aborting")
-        return False
-    if not _foreground(hwnd):
-        _dbg("sendinput: could not foreground window — aborting")
-        return False
-    _dbg(f"sendinput: sending {len(text)} chars via SendInput")
-    if new_line_first:
-        _press_key(VK_END)
-        _press_key(VK_RETURN)
-        time.sleep(0.05)
-    _sendinput_text(text)
-    _dbg("sendinput: done")
-    return True
-
-
-# ── secondary input: WM_CHAR (classic Win32 edit controls, no focus needed) ───
+# ── Strategy 2: WM_CHAR (classic Win32 edit controls) ────────────────────────
 
 def wm_char_type_into(title_contains: str, text: str, new_line_first: bool = False) -> bool:
-    """Send WM_CHAR directly to an Edit control. No focus needed."""
+    """Send WM_CHAR to an Edit control — no focus needed, classic apps only."""
     _dbg(f"wm_char_type_into('{title_contains}', '{text[:30]}')")
     if not _HAS_WIN32:
-        _dbg("wm_char: win32 not available")
+        _dbg("wm_char: win32 unavailable")
         return False
     hwnd = _find_window_handle(title_contains)
     if not hwnd:
-        _dbg("wm_char: window not found")
         return False
     edit = _find_edit_handle(hwnd)
     target = edit if edit else hwnd
-    _foreground(hwnd)
+    try:
+        win32gui.ShowWindow(hwnd, 9)
+        win32gui.SetForegroundWindow(hwnd)
+        time.sleep(0.4)
+    except Exception as e:
+        _dbg(f"wm_char foreground failed: {e}")
     if new_line_first:
         win32gui.SendMessage(target, win32con.WM_KEYDOWN, win32con.VK_END, 0)
         win32gui.SendMessage(target, win32con.WM_CHAR, ord('\r'), 0)
@@ -182,18 +128,39 @@ def wm_char_type_into(title_contains: str, text: str, new_line_first: bool = Fal
     for ch in text:
         win32gui.SendMessage(target, win32con.WM_CHAR, ord(ch), 0)
         time.sleep(0.008)
+    _dbg("wm_char done")
     return True
 
 
-# ── public helpers ─────────────────────────────────────────────────────────────
+# ── Public helpers ────────────────────────────────────────────────────────────
 
 def win32_focus(title_contains: str) -> bool:
+    # Try PowerShell AppActivate first (more reliable than SetForegroundWindow)
+    ps = f"""
+Add-Type -AssemblyName Microsoft.VisualBasic
+$w = Get-Process | Where-Object {{ $_.MainWindowTitle -like '*{title_contains}*' }} | Select-Object -First 1
+if ($w) {{ [Microsoft.VisualBasic.Interaction]::AppActivate($w.Id); exit 0 }} else {{ exit 1 }}
+"""
+    try:
+        r = subprocess.run(["powershell", "-WindowStyle", "Hidden", "-NonInteractive", "-Command", ps],
+                           capture_output=True, timeout=5)
+        if r.returncode == 0:
+            time.sleep(0.4)
+            return True
+    except Exception:
+        pass
     if not _HAS_WIN32:
         return False
     hwnd = _find_window_handle(title_contains)
     if not hwnd:
         return False
-    return _foreground(hwnd)
+    try:
+        win32gui.ShowWindow(hwnd, 9)
+        win32gui.SetForegroundWindow(hwnd)
+        time.sleep(0.4)
+        return True
+    except Exception:
+        return False
 
 
 def win32_list_windows() -> list:
@@ -225,24 +192,13 @@ class ArtyWinControl:
                 return None
 
     def focus(self, title_contains: str) -> bool:
-        if win32_focus(title_contains):
-            return True
-        app = self.connect(title_contains)
-        if not app:
-            return False
-        try:
-            app.top_window().set_focus()
-            time.sleep(0.3)
-            return True
-        except Exception:
-            return False
+        return win32_focus(title_contains)
 
     def type_into(self, title_contains: str, text: str, new_line_first: bool = False) -> bool:
-        """Try all input strategies in order. Returns True if any succeeded."""
-        # Strategy 1: SendInput (universal — works on modern apps)
-        if sendinput_type_into(title_contains, text, new_line_first):
+        # Strategy 1: PowerShell SendKeys (most reliable)
+        if ps_type_into(title_contains, text, new_line_first):
             return True
-        # Strategy 2: WM_CHAR (classic Win32 edit controls)
+        # Strategy 2: WM_CHAR (classic Win32)
         if wm_char_type_into(title_contains, text, new_line_first):
             return True
         # Strategy 3: pywinauto
@@ -269,22 +225,7 @@ class ArtyWinControl:
             return False
 
     def click_control(self, title_contains: str, control_name: str = None) -> bool:
-        if win32_focus(title_contains):
-            return True
-        if not _HAS_PYWINAUTO:
-            return False
-        app = self.connect(title_contains)
-        if not app:
-            return False
-        try:
-            dlg = app.top_window()
-            dlg.set_focus()
-            time.sleep(0.3)
-            ctrl = dlg[control_name] if control_name else dlg.Edit
-            ctrl.click_input()
-            return True
-        except Exception:
-            return False
+        return win32_focus(title_contains)
 
     def list_windows(self) -> list:
         titles = win32_list_windows()
