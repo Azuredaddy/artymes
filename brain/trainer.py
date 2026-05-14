@@ -1,6 +1,7 @@
 import json
 import time
 import random
+import threading
 from datetime import datetime
 import anthropic
 from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
@@ -198,6 +199,103 @@ class TrainingSession:
         }
 
 
+OBSERVE_SYSTEM_PROMPT = """You are ARTY, an AI learning a user's computer workflow by watching their screen.
+
+Respond ONLY with valid JSON — no markdown, no extra text:
+{"observation": "brief description of what you see", "question": "one useful question to learn the workflow, or null"}
+
+Rules:
+- observation: max 15 words, present tense
+- question: max 20 words, only if genuinely useful; otherwise null
+- If nothing has meaningfully changed, return {"observation": "screen unchanged", "question": null}"""
+
+
+class ObserveSession:
+    def __init__(self, duration_minutes: int, eyes, hands, voice, memory):
+        self.duration_min = duration_minutes
+        self.eyes = eyes
+        self.hands = hands
+        self.voice = voice
+        self.memory = memory
+        self._stop = threading.Event()
+        self.observations = []
+        self.interval_sec = 15
+        self._client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    def stop(self):
+        self._stop.set()
+
+    def open_notepad(self):
+        self.hands.open_app("notepad")
+        time.sleep(1.5)
+        header = (
+            f"=== ARTY OBSERVATION LOG ===\n"
+            f"Started: {datetime.now().strftime('%d %b %Y %H:%M')}\n"
+            f"Duration: up to {self.duration_min} min\n"
+            f"{'─' * 36}\n"
+        )
+        self.hands.type_into_window("Notepad", header)
+
+    def _analyze(self, screenshot_b64: str) -> dict | None:
+        try:
+            resp = self._client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=150,
+                system=OBSERVE_SYSTEM_PROMPT,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": screenshot_b64}},
+                        {"type": "text", "text": "What is the user doing?"},
+                    ],
+                }],
+            )
+            raw = resp.content[0].text.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            return json.loads(raw)
+        except Exception as e:
+            console.print(f"  [dim red][Observe] analysis error: {e}[/dim red]")
+            return None
+
+    def _write_note(self, text: str):
+        self.hands.type_into_window("Notepad", text, new_line_first=True)
+
+    def run(self):
+        """Observation loop — run this in a daemon thread."""
+        start_time = time.time()
+        while not self._stop.is_set():
+            elapsed_sec = time.time() - start_time
+            if elapsed_sec >= self.duration_min * 60:
+                self._stop.set()
+                break
+
+            screenshot_b64 = self.eyes.capture_all()
+            result = self._analyze(screenshot_b64)
+
+            if result:
+                ts = datetime.now().strftime("%H:%M")
+                obs = result.get("observation", "")
+                q = result.get("question")
+                line = f"[{ts}] {obs}"
+                if q:
+                    line += f"\n  Q: {q}"
+                self._write_note(line)
+                self.observations.append(result)
+                console.print(f"  [dim cyan][Observe] {obs}[/dim cyan]")
+
+            for _ in range(self.interval_sec * 2):
+                if self._stop.is_set():
+                    break
+                time.sleep(0.5)
+
+        elapsed_min = (time.time() - start_time) / 60
+        self._write_note(
+            f"\n{'─' * 36}\n"
+            f"Session ended — {elapsed_min:.0f} min | {len(self.observations)} observations"
+        )
+
+
 class ArtyTrainer:
     def __init__(self, eyes, hands, voice, memory):
         self.eyes = eyes
@@ -223,3 +321,6 @@ class ArtyTrainer:
 
     def list_procedures(self) -> list:
         return self.memory.list_procedures()
+
+    def start_observe(self, duration_minutes: int = 60) -> ObserveSession:
+        return ObserveSession(duration_minutes, self.eyes, self.hands, self.voice, self.memory)

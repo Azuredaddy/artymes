@@ -8,6 +8,7 @@ import sys
 import uuid
 import random
 import re
+import threading
 import requests
 from datetime import datetime
 from rich.console import Console
@@ -35,6 +36,7 @@ COMMANDS = {
     "/help":    "Show this help",
     "/tasks":   "Show open tasks ARTY has flagged",
     "/train":   "Enter training mode — teach ARTY a task",
+    "/watch":   "Observation mode — ARTY watches & logs to Notepad: /watch [minutes]",
     "/recall":  "List all procedures ARTY has learned",
     "/do":      "Run a saved procedure: /do <name>",
     "/type":    "Type instead of using the mic this session",
@@ -147,6 +149,54 @@ def _get_input(use_mic, ears):
 def _is_signal(text: str, signals: set) -> bool:
     t = text.lower().strip().strip(".,!? ")
     return any(t == s or t.endswith(s) or s in t for s in signals)
+
+
+WATCH_STOP_SIGNALS = {
+    "stop watching", "stop observation", "stop observe", "exit watch",
+    "done watching", "end watch", "finish watching", "stop now",
+}
+
+
+def observe_mode(trainer, voice, use_mic, ears, duration_min: int = 60):
+    console.print(f"\n[cyan bold]  ── OBSERVE MODE ({duration_min} min) ──[/cyan bold]")
+    console.print("[dim]  ARTY will watch your screen and log notes to Notepad.[/dim]")
+    console.print("[dim]  Say 'stop watching' at any time to end early.[/dim]\n")
+
+    session = trainer.start_observe(duration_min)
+
+    msg = (
+        f"Going into watch mode for up to {duration_min} minutes. "
+        "I'll open Notepad and log what I see. "
+        "Say 'stop watching' whenever you're done."
+    )
+    console.print(f"  [green]ARTY:[/green] {msg}")
+    voice.speak(msg)
+
+    session.open_notepad()
+
+    obs_thread = threading.Thread(target=session.run, daemon=True)
+    obs_thread.start()
+
+    while not session._stop.is_set():
+        console.print("  [dim cyan]  [ Listening... say 'stop watching' to end ][/dim cyan]")
+        user_input = _get_input(use_mic, ears)
+        if not user_input:
+            continue
+        lower = user_input.lower().strip()
+        if any(s in lower for s in WATCH_STOP_SIGNALS):
+            session.stop()
+            break
+        # User said something — log it as a note
+        session._write_note(f"  [You: {user_input}]")
+        ack = "Noted that."
+        console.print(f"  [green]ARTY:[/green] {ack}")
+        voice.speak(ack)
+
+    obs_thread.join(timeout=5)
+    count = len(session.observations)
+    done_msg = f"Done watching. Logged {count} observation{'s' if count != 1 else ''} to Notepad."
+    console.print(f"\n  [green]ARTY:[/green] {done_msg}")
+    voice.speak(done_msg)
 
 
 def training_mode(trainer, brain, voice, use_mic, ears):
@@ -316,6 +366,13 @@ def run():
                     show_tasks(brain, voice)
                 elif cmd == "/train":
                     training_mode(trainer, brain, voice, use_mic, ears)
+                elif cmd.startswith("/watch"):
+                    arg = cmd[6:].strip()
+                    try:
+                        mins = int(arg) if arg else 60
+                    except ValueError:
+                        mins = 60
+                    observe_mode(trainer, voice, use_mic, ears, duration_min=mins)
                 elif cmd == "/recall":
                     show_procedures(trainer, voice)
                 elif cmd.startswith("/do "):

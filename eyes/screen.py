@@ -50,7 +50,7 @@ class ArtyEyes:
         return self._grab_with_scale(self.sct.monitors[0])
 
     def capture_with_focus(self, title_contains: str = None) -> tuple:
-        """Capture the monitor containing the named window (or all monitors as fallback).
+        """Capture the monitor containing the named window (or primary monitor as fallback).
         Returns (b64, x_offset, y_offset, x_scale, y_scale).
         x_offset/y_offset are the monitor's top-left in global screen space."""
         if title_contains:
@@ -72,8 +72,11 @@ class ArtyEyes:
                             return b64, m['left'], m['top'], xs, ys
             except Exception:
                 pass
-        b64, xs, ys = self._grab_with_scale(self.sct.monitors[0])
-        return b64, 0, 0, xs, ys
+        # Fall back to primary monitor — the combined-all-monitors image compresses
+        # 3×1920px into 1280px, making Claude's coordinate estimates 4.5× less accurate.
+        primary = self.sct.monitors[1] if len(self.sct.monitors) > 1 else self.sct.monitors[0]
+        b64, xs, ys = self._grab_with_scale(primary)
+        return b64, primary["left"], primary["top"], xs, ys
 
     def capture_primary_native(self) -> tuple:
         """Capture primary monitor and return (base64_jpeg, real_width, real_height).
