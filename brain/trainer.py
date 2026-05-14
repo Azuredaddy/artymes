@@ -35,13 +35,15 @@ Other actions:
 - hotkey: {"keys": ["ctrl", "s"]}
 - open: {"app": "notepad|calculator|chrome|..."}
 - wait: {"seconds": float}
-- done: {}  — ONLY when task is confirmed complete
+- done: {}  — ONLY after you have actually performed all required actions in this session
 
 Rules:
 - For ANY typing task: use direct_type with the app name, NOT click + type
 - Do NOT click near the top 40px of windows (title bar — will move/close window)
 - Never repeat an action already listed in history
-- If task appears complete on screen already, return done immediately"""
+- NEVER return done on step 1 unless the task truly requires zero actions
+- If the task says "open X", always open it even if X is already visible — a new instance may be needed
+- Only return done after you have executed every step the user asked for"""
 
 WATCH_PROMPTS = [
     "Got it.",
