@@ -1,8 +1,8 @@
 import io
 import os
+import numpy as np
 import sounddevice as sd
 import soundfile as sf
-import numpy as np
 from elevenlabs import ElevenLabs, VoiceSettings
 from config import ELEVENLABS_API_KEY, ARTY_VOICE_ID
 
@@ -42,25 +42,23 @@ class ArtyVoice:
             _pyttsx3_speak(text)
             return
         try:
-            audio_bytes = self.client.text_to_speech.convert(
+            # PCM output: raw 16-bit samples at 24kHz — no MP3 decoding, plays on first chunk
+            chunks = self.client.text_to_speech.convert(
                 voice_id=self.voice_id,
                 text=text,
                 model_id="eleven_turbo_v2_5",
-                voice_settings=self.voice_settings
+                voice_settings=self.voice_settings,
+                output_format="pcm_24000",
             )
-            audio_data = b"".join(audio_bytes)
-            buf = io.BytesIO(audio_data)
-            data, samplerate = sf.read(buf)
-            if data.ndim == 1:
-                data = data.reshape(-1, 1)
-            sd.play(data, samplerate)
-            sd.wait()
+            with sd.OutputStream(samplerate=24000, channels=1, dtype="int16") as out:
+                for chunk in chunks:
+                    if chunk:
+                        out.write(np.frombuffer(chunk, dtype=np.int16).reshape(-1, 1))
         except Exception as e:
             print(f"  [ElevenLabs error — falling back to local voice]: {e}")
             _pyttsx3_speak(text)
 
     def speak_async(self, text: str):
-        """Speak without blocking — use for non-critical output."""
         import threading
         t = threading.Thread(target=self.speak, args=(text,), daemon=True)
         t.start()

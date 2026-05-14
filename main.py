@@ -185,9 +185,8 @@ def run():
 
             # ── Normal conversation ────────────────────────────────────────────
             console.print(f"\n  [bold white]You:[/bold white] {user_input}")
-            reply, needs_help = brain.think(user_input)
+            reply, needs_help = brain.think_streaming(user_input, voice)
             console.print(f"  [green]ARTY:[/green] {reply}")
-            voice.speak(reply)
 
             if needs_help:
                 task_id = brain.log_task(

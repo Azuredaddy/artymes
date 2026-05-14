@@ -15,7 +15,7 @@ class ArtyEars:
         self.model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8", download_root=_model_dir)
         self.sample_rate = 16000
         self.silence_threshold = 0.01
-        self.silence_duration = 1.5
+        self.silence_duration = 0.8   # was 1.5 — cuts dead air after speaking
         self.max_duration = 30
 
     def record_until_silence(self) -> np.ndarray:

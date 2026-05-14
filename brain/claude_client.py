@@ -1,3 +1,4 @@
+import re
 import anthropic
 import random
 from datetime import datetime
@@ -7,7 +8,7 @@ from brain.memory import ArtyMemory
 
 _context_cache = None
 _context_built_at = None
-_CONTEXT_TTL_SECONDS = 300  # refresh every 5 minutes
+_CONTEXT_TTL_SECONDS = 300
 
 
 def _build_context_cached() -> str:
@@ -27,42 +28,77 @@ def _build_context_cached() -> str:
     return _context_cache
 
 
+def _split_sentence(buffer: str):
+    """Return (sentence_to_speak, remaining_buffer) or (None, buffer) if no complete sentence yet."""
+    match = re.search(r'[.!?]["\']?\s+', buffer)
+    if match and len(buffer[:match.end()].split()) >= 4:
+        return buffer[:match.end()].strip(), buffer[match.end():]
+    return None, buffer
+
+
 class ArtyBrain:
     def __init__(self):
         self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         self.memory = ArtyMemory()
         self.session_id = None
-        # Build context once at startup and print it so we know it's working
         ctx = _build_context_cached()
         print(f"\n[Context loaded]\n{ctx}\n")
 
     def set_session(self, session_id: str):
         self.session_id = session_id
 
-    def think(self, user_input: str) -> tuple[str, bool]:
-        """
-        Process user input and return (response_text, needs_help).
-        needs_help=True triggers the uncertainty/escalation flow.
-        """
-        self.memory.save_message("user", user_input, self.session_id)
-
+    def _build_messages(self, user_input: str) -> tuple[str, list]:
         knowledge_context = self.memory.build_context_for_query(user_input)
         recent_messages = self.memory.get_recent_messages(CONVERSATION_WINDOW)
 
-        system = ARTY_SYSTEM_PROMPT
-        system += f"\n\n{_build_context_cached()}"
+        system = ARTY_SYSTEM_PROMPT + f"\n\n{_build_context_cached()}"
         if knowledge_context:
             system += f"\n\n{knowledge_context}"
 
-        messages = recent_messages if recent_messages else []
+        messages = recent_messages[:]
         if not messages or messages[-1]["role"] != "user":
             messages.append({"role": "user", "content": user_input})
+
+        return system, messages
+
+    def think_streaming(self, user_input: str, voice) -> tuple[str, bool]:
+        """Stream Claude's reply, speaking each sentence as it arrives."""
+        self.memory.save_message("user", user_input, self.session_id)
+        system, messages = self._build_messages(user_input)
+
+        full_reply = ""
+        buffer = ""
+
+        with self.client.messages.stream(
+            model=CLAUDE_MODEL,
+            max_tokens=1024,
+            system=system,
+            messages=messages,
+        ) as stream:
+            for text in stream.text_stream:
+                full_reply += text
+                buffer += text
+                sentence, buffer = _split_sentence(buffer)
+                if sentence:
+                    voice.speak(sentence)
+
+        if buffer.strip():
+            voice.speak(buffer.strip())
+
+        needs_help = self._detect_uncertainty(full_reply)
+        self.memory.save_message("assistant", full_reply, self.session_id)
+        return full_reply, needs_help
+
+    def think(self, user_input: str) -> tuple[str, bool]:
+        """Non-streaming fallback — returns full reply without speaking."""
+        self.memory.save_message("user", user_input, self.session_id)
+        system, messages = self._build_messages(user_input)
 
         response = self.client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=1024,
             system=system,
-            messages=messages
+            messages=messages,
         )
 
         reply = response.content[0].text
@@ -75,7 +111,6 @@ class ArtyBrain:
         return reply, needs_help
 
     def learn(self, topic: str, content: str, source: str = None):
-        """Store a training note into long-term memory."""
         self.memory.save_training_note(topic, content, source)
         return random.choice(ARTY_LEARNING_PHRASES)
 
