@@ -7,6 +7,12 @@ try:
 except ImportError:
     _HAS_CLIPBOARD = False
 
+try:
+    import pygetwindow as gw
+    _HAS_GW = True
+except ImportError:
+    _HAS_GW = False
+
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.15
 
@@ -71,6 +77,41 @@ class ArtyHands:
             pyautogui.press("enter")
             time.sleep(2.0)
 
+    def find_window(self, title_contains: str):
+        """Find an open window by partial title. Returns window object or None."""
+        if not _HAS_GW:
+            return None
+        matches = [w for w in gw.getAllWindows() if title_contains.lower() in w.title.lower() and w.visible]
+        return matches[0] if matches else None
+
+    def focus_window(self, title_contains: str) -> dict | None:
+        """Bring a window to front and return its position/size, or None if not found."""
+        win = self.find_window(title_contains)
+        if not win:
+            return None
+        try:
+            win.activate()
+            time.sleep(0.4)
+        except Exception:
+            pass
+        return {"left": win.left, "top": win.top, "width": win.width, "height": win.height}
+
+    def click_into_window(self, title_contains: str) -> bool:
+        """Focus a window and click its text area (below the title bar)."""
+        info = self.focus_window(title_contains)
+        if not info:
+            return False
+        # Click slightly below centre-top to land in the content area, not the title bar
+        cx = info["left"] + info["width"] // 2
+        cy = info["top"] + info["height"] // 2
+        pyautogui.click(cx, cy)
+        return True
+
+    def list_windows(self) -> list[str]:
+        if not _HAS_GW:
+            return []
+        return [w.title for w in gw.getAllWindows() if w.title and w.visible]
+
     def screen_size(self) -> tuple:
         return pyautogui.size()
 
@@ -80,7 +121,9 @@ class ArtyHands:
         params = action.get("params", {})
         narration = action.get("narration", f"Executing {atype}")
 
-        if atype == "click":
+        if atype == "focus_window":
+            self.click_into_window(params.get("title", ""))
+        elif atype == "click":
             self.click(params["x"], params["y"])
         elif atype == "double_click":
             self.double_click(params["x"], params["y"])

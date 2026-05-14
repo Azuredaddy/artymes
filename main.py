@@ -21,7 +21,9 @@ console = Console()
 _ACTION_RE = re.compile(
     r'\b(open|launch|start up|close|minimize|maximise|maximize|pull up|bring up|'
     r'type|click|press|scroll|go to|navigate to|search for|switch to|tab over|'
-    r'copy|paste|select all|undo|redo|save|create a new|make a new)\b',
+    r'copy|paste|select all|undo|redo|save|create a new|make a new|'
+    r'write|put|add|insert|place|drag|fill in|drop|'
+    r'type in|write in|put in|add to|write on|write into)\b',
     re.IGNORECASE
 )
 
@@ -147,27 +149,32 @@ def training_mode(trainer, brain, voice, use_mic, ears):
     )
 
     console.print("\n[yellow bold]  ── TRAINING MODE ──[/yellow bold]")
-    console.print("[dim]  Say what you're doing as you do it. Say 'your turn' when ready for ARTY to try.[/dim]")
-    console.print("[dim]  Say 'save that' to save, 'exit training' to leave.[/dim]\n")
+    console.print("[dim]  Narrate each step as you do it. Say 'your turn' when you want ARTY to try.[/dim]")
+    console.print("[dim]  Say 'save that' to save the procedure. Say 'exit training' to leave.[/dim]\n")
 
-    prompt = "What task are we working on today?"
-    console.print(f"  [green]ARTY:[/green] {prompt}")
-    voice.speak(prompt)
+    # Get topic — keep asking until we get something or user explicitly quits
+    topic = ""
+    for _ in range(3):
+        prompt = "What task are we working on today?" if not topic else "Didn't catch that — what's the task?"
+        console.print(f"  [green]ARTY:[/green] {prompt}")
+        voice.speak(prompt)
+        console.print("  [dim cyan]  [ Listening for task name... ][/dim cyan]")
+        topic = _get_input(use_mic, ears)
+        if topic:
+            break
 
-    topic = _get_input(use_mic, ears)
     if not topic or _is_signal(topic, EXIT_SIGNALS):
         voice.speak("No problem, maybe another time.")
         return
 
     session = trainer.start(topic)
-    msg = f"Got it — {topic}. Walk me through it step by step, narrate as you go, and I'll watch. Say 'your turn' when you want me to try."
+    msg = f"Got it — {topic}. Walk me through it. Narrate what you're doing as you go, and I'll watch and take notes. Say 'your turn' when you're ready for me to have a go."
     console.print(f"  [green]ARTY:[/green] {msg}")
     voice.speak(msg)
 
-    tried = False
-
     while True:
         try:
+            console.print("  [dim cyan]  [ Listening... ][/dim cyan]")
             user_input = _get_input(use_mic, ears)
             if not user_input:
                 continue
@@ -175,7 +182,7 @@ def training_mode(trainer, brain, voice, use_mic, ears):
             lower = user_input.lower().strip()
 
             if _is_signal(lower, EXIT_SIGNALS):
-                voice.speak("Leaving training mode. Nice session.")
+                voice.speak("Leaving training mode.")
                 break
 
             elif _is_signal(lower, SAVE_SIGNALS):
@@ -191,23 +198,33 @@ def training_mode(trainer, brain, voice, use_mic, ears):
                 console.print(f"  [green]ARTY:[/green] {phrase}")
                 voice.speak(phrase)
                 success = session.try_task()
-                tried = True
                 if success:
                     result_msg = random.choice(ARTY_TRAINING_SUCCESS_PHRASES)
                 else:
                     result_msg = random.choice(ARTY_TRAINING_FAIL_PHRASES)
                 console.print(f"  [green]ARTY:[/green] {result_msg}")
                 voice.speak(result_msg)
+                # After trying, ask if they want to save
+                if success:
+                    save_prompt = "Want me to save that so I remember it next time?"
+                    console.print(f"  [green]ARTY:[/green] {save_prompt}")
+                    voice.speak(save_prompt)
+                    console.print("  [dim cyan]  [ Listening... ][/dim cyan]")
+                    save_reply = _get_input(use_mic, ears)
+                    if save_reply and any(w in save_reply.lower() for w in ["yes", "yeah", "sure", "yep", "go on", "save"]):
+                        brain.memory.save_procedure(topic, session.to_record()["steps"])
+                        voice.speak(f"Saved. I've got {topic} locked in.")
+                        break
 
             else:
-                # User is narrating a step they're demonstrating
+                # User narrating a step
                 session.record_step(user_input)
                 ack = random.choice(ARTY_TRAINING_WATCH_PHRASES)
                 console.print(f"  [green]ARTY:[/green] {ack}")
                 voice.speak(ack)
 
         except KeyboardInterrupt:
-            voice.speak("Training interrupted. Want to save what we covered?")
+            voice.speak("Training interrupted.")
             break
 
 
