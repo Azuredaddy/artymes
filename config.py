@@ -18,8 +18,7 @@ MEMORY_DB_PATH = os.getenv("MEMORY_DB_PATH", "./data/arty_memory.db")
 CHROMA_PATH = os.getenv("CHROMA_PATH", "./data/chroma")
 
 CLAUDE_MODEL = "claude-opus-4-7"
-# Computer Use requires a model that supports the computer-use-2025-01-24 beta
-COMPUTER_USE_MODEL = "claude-sonnet-4-5-20251001"
+COMPUTER_USE_MODEL = "claude-opus-4-7"
 WHISPER_MODEL = "base"
 
 CONVERSATION_WINDOW = 20
