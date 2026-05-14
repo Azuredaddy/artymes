@@ -41,6 +41,20 @@ except ImportError:
     _HAS_CLIP = False
 
 
+# ── foreground focus helper ───────────────────────────────────────────────────
+
+def _force_foreground(hwnd: int):
+    """SetForegroundWindow with Alt-key trick to bypass Windows foreground lock."""
+    try:
+        import win32api
+        win32gui.ShowWindow(hwnd, 9)  # SW_RESTORE
+        win32api.keybd_event(win32con.VK_MENU, 0, 0, 0)
+        win32gui.SetForegroundWindow(hwnd)
+        win32api.keybd_event(win32con.VK_MENU, 0, win32con.KEYEVENTF_KEYUP, 0)
+    except Exception as e:
+        _dbg(f"_force_foreground error: {e}")
+
+
 # ── window finding ────────────────────────────────────────────────────────────
 
 def _find_hwnd(title_contains: str) -> int:
@@ -87,8 +101,7 @@ def click_paste_type_into(title_contains: str, text: str, new_line_first: bool =
         return False
     cx, cy = _content_center(hwnd)
     try:
-        win32gui.ShowWindow(hwnd, 9)        # SW_RESTORE
-        win32gui.SetForegroundWindow(hwnd)
+        _force_foreground(hwnd)
         time.sleep(0.5)
         pyautogui.click(cx, cy)
         time.sleep(0.4)
@@ -122,12 +135,8 @@ def wm_char_type_into(title_contains: str, text: str, new_line_first: bool = Fal
             break
     target = edit if edit else hwnd
     _dbg(f"wm_char target hwnd={target} (edit={edit})")
-    try:
-        win32gui.ShowWindow(hwnd, 9)
-        win32gui.SetForegroundWindow(hwnd)
-        time.sleep(0.4)
-    except Exception as e:
-        _dbg(f"wm_char foreground: {e}")
+    _force_foreground(hwnd)
+    time.sleep(0.4)
     if new_line_first:
         win32gui.SendMessage(target, win32con.WM_KEYDOWN, win32con.VK_END, 0)
         win32gui.SendMessage(target, win32con.WM_CHAR, ord('\r'), 0)
@@ -146,8 +155,7 @@ def win32_focus(title_contains: str) -> bool:
     if not hwnd:
         return False
     try:
-        win32gui.ShowWindow(hwnd, 9)
-        win32gui.SetForegroundWindow(hwnd)
+        _force_foreground(hwnd)
         time.sleep(0.4)
         return True
     except Exception:
