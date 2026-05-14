@@ -69,8 +69,12 @@ if notepad_hwnd and HAS_WIN32:
     print("Focusing and clicking in 2 seconds...")
     time.sleep(2)
 
+    import win32api, win32con
     win32gui.ShowWindow(notepad_hwnd, 9)
+    # Alt-key trick: unlocks Windows foreground-lock so SetForegroundWindow works reliably
+    win32api.keybd_event(win32con.VK_MENU, 0, 0, 0)
     win32gui.SetForegroundWindow(notepad_hwnd)
+    win32api.keybd_event(win32con.VK_MENU, 0, win32con.KEYEVENTF_KEYUP, 0)
     time.sleep(0.6)
     pyautogui.click(cx, cy)
     time.sleep(0.4)
