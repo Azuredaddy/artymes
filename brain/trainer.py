@@ -29,7 +29,8 @@ Params by action type:
 - done: {}  — use ONLY when the task is fully complete
 
 Coordinates are real pixel positions. Click the CENTER of elements.
-After each action you will receive a new screenshot showing current state."""
+You will be told what actions you have already taken — do NOT repeat them. Make progress each step.
+If the task is already complete on screen, return done immediately."""
 
 WATCH_PROMPTS = [
     "Got it.",
@@ -55,7 +56,7 @@ class TrainingSession:
         self.steps.append({"description": description, "screenshot_b64": screenshot})
         console.print(f"  [dim]  ↳ Captured: {description}[/dim]")
 
-    def try_task(self, max_steps: int = 25) -> bool:
+    def try_task(self, max_steps: int = 15) -> bool:
         """ARTY attempts the task autonomously using vision + action loop."""
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -71,8 +72,18 @@ class TrainingSession:
 
         console.print(f"\n  [yellow]ARTY attempting: {self.topic}[/yellow]")
 
+        action_history = []
+
         for step_num in range(max_steps):
             screenshot_b64 = self.eyes.capture_all()
+
+            # Build history text so Claude knows what's already been done
+            history_text = ""
+            if action_history:
+                history_text = "\n\nActions already taken (do NOT repeat these):\n" + "\n".join(
+                    f"  {i+1}. {a.get('narration', a.get('action', '?'))}"
+                    for i, a in enumerate(action_history)
+                )
 
             try:
                 response = client.messages.create(
@@ -92,14 +103,13 @@ class TrainingSession:
                             },
                             {
                                 "type": "text",
-                                "text": f"Task: {task_desc}\n\nStep {step_num + 1} — what should I do?",
+                                "text": f"Task: {task_desc}{history_text}\n\nStep {step_num + 1} — what is the NEXT action?",
                             },
                         ],
                     }],
                 )
 
                 raw = response.content[0].text.strip()
-                # Strip markdown fences if Claude adds them
                 if raw.startswith("```"):
                     raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
@@ -120,6 +130,16 @@ class TrainingSession:
             if atype == "done":
                 return True
 
+            # Loop detection — if the same action type repeats 3 times in a row, bail
+            if len(action_history) >= 3:
+                last3 = [a.get("action") for a in action_history[-3:]]
+                if len(set(last3)) == 1 and last3[0] == atype:
+                    console.print("  [yellow]ARTY: Looks like I'm going in circles.[/yellow]")
+                    self.voice.speak("I seem to be going in circles on this one.")
+                    return False
+
+            action_history.append(action)
+
             try:
                 self.hands.execute_action(action)
                 time.sleep(0.9)
@@ -128,7 +148,7 @@ class TrainingSession:
                 self.voice.speak(f"Ran into a problem — {str(e)[:60]}")
                 return False
 
-        self.voice.speak("I've hit my step limit. I'll need a bit more guidance on this one.")
+        self.voice.speak("I've used up my steps and I'm not done. I'll need some guidance.")
         return False
 
     def to_record(self) -> dict:

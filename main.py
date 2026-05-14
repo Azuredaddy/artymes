@@ -310,13 +310,16 @@ def run():
                 voice.speak(ack)
                 success = trainer.execute_task(user_input)
                 if not success:
-                    reply = random.choice([
-                        "I couldn't quite pull that off. Want to show me how in training mode?",
-                        "I got stuck on that one. A quick training session would help.",
-                        "Hmm, that didn't go to plan. Want to walk me through it?",
+                    offer = random.choice([
+                        "I got stuck on that. Want to show me how and I'll learn it?",
+                        "I couldn't crack that one. Want to walk me through it in training mode?",
+                        "Hmm, that didn't go to plan. Want to teach me the right way?",
                     ])
-                    console.print(f"  [green]ARTY:[/green] {reply}")
-                    voice.speak(reply)
+                    console.print(f"  [green]ARTY:[/green] {offer}")
+                    voice.speak(offer)
+                    confirm = _get_input(use_mic, ears)
+                    if confirm and any(w in confirm.lower() for w in ["yes", "yeah", "sure", "go on", "yep", "ok", "alright"]):
+                        training_mode(trainer, brain, voice, use_mic, ears)
                 continue
 
             reply, needs_help = brain.think_streaming(user_input, voice)
