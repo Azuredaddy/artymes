@@ -8,6 +8,7 @@ ChromaDB or SQLite.
 import requests
 import time
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 from rich.console import Console
 
 console = Console()
@@ -43,11 +44,10 @@ class ArtyAutotask:
         self.int_code = AUTOTASK_INTEGRATION_CODE
 
         if AUTOTASK_ZONE_URL:
-            # If user gave a full API base URL use it directly, otherwise append the path
-            if "ATServicesRest" in AUTOTASK_ZONE_URL:
-                self.base = AUTOTASK_ZONE_URL.rstrip("/")
-            else:
-                self.base = AUTOTASK_ZONE_URL.rstrip("/") + "/ATServicesRest/v1.0"
+            # Always extract just the host so we never get a doubled path
+            parsed = urlparse(AUTOTASK_ZONE_URL)
+            host_only = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else AUTOTASK_ZONE_URL.rstrip("/")
+            self.base = host_only + "/ATServicesRest/v1.0"
         else:
             self.base = self._detect_zone()
 
@@ -69,7 +69,10 @@ class ArtyAutotask:
                 if not zone_url:
                     last_err = f"No 'url' field in zone response: {data}"
                     continue
-                full_base = zone_url + "/ATServicesRest/v1.0"
+                # Strip any path the zone response may have included — we only want the host
+                parsed = urlparse(zone_url)
+                host_only = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else zone_url
+                full_base = host_only + "/ATServicesRest/v1.0"
                 console.print(f"  [dim cyan][Autotask] zone detected: {full_base}[/dim cyan]")
                 return full_base
             except Exception as e:
@@ -130,13 +133,7 @@ class ArtyAutotask:
             filters.append({"field": "assignedResourceID", "op": "eq",
                             "value": AUTOTASK_RESOURCE_ID})
 
-        body = {
-            "filter": [{"op": "and", "items": filters}],
-            "MaxRecords": max_results,
-            "includeFields": ["id", "title", "status", "queueID",
-                              "companyID", "contactID", "ticketNumber",
-                              "createDate", "priority"],
-        }
+        body = {"filter": [{"op": "and", "items": filters}]}
         try:
             data = self._post("Tickets/query", body)
             return data.get("items", [])
@@ -171,12 +168,9 @@ class ArtyAutotask:
     def search_companies_by_name(self, name: str) -> list[dict]:
         """Find companies whose name contains the search string."""
         body = {
-            "filter": [{"op": "and", "items": [
+            "filter": [
                 {"field": "companyName", "op": "contains", "value": name},
-                {"field": "isActive", "op": "eq", "value": True},
-            ]}],
-            "MaxRecords": 10,
-            "includeFields": ["id", "companyName"],
+            ],
         }
         try:
             data = self._post("Companies/query", body)
@@ -192,9 +186,6 @@ class ArtyAutotask:
                 {"field": "companyID", "op": "eq", "value": company_id},
                 {"field": "status", "op": "noteq", "value": STATUS_COMPLETE},
             ]}],
-            "MaxRecords": max_results,
-            "includeFields": ["id", "title", "status", "ticketNumber",
-                              "companyID", "contactID", "createDate", "priority"],
         }
         try:
             data = self._post("Tickets/query", body)

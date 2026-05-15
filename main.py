@@ -28,27 +28,56 @@ _ACTION_RE = re.compile(
     re.IGNORECASE
 )
 
-# Ticket intent — "any tickets from X" / "tickets for X" / "check tickets for X"
-_TICKET_COMPANY_RE = re.compile(
-    r'\b(?:tickets?|ticket)\b.{0,30}\b(?:from|for|about|regarding|at|with)\s+([A-Za-z0-9\s&\'-]{2,40})',
+# Words that are never a company name — prevent regex eating filler words
+_NOT_COMPANY = {
+    "me", "my", "the", "a", "an", "us", "our", "you", "your", "it", "its",
+    "autotask", "ticket", "tickets", "this", "that", "them", "their",
+    "one", "any", "all", "some", "there", "here", "now", "please",
+}
+
+# Matches "company called X", "company X", "for/from X" (where X is not a stopword)
+_COMPANY_NAME_RE = re.compile(
+    r'\b(?:company\s+(?:called\s+|named\s+)?|client\s+(?:called\s+|named\s+)?|account\s+(?:called\s+)?)'
+    r'([A-Za-z][A-Za-z0-9\s&\'-]{1,39})',
+    re.IGNORECASE
+)
+_TICKET_FOR_RE = re.compile(
+    r'\b(?:tickets?|issues?|anything|anything open|open\s+tickets?)'
+    r'.{0,25}\b(?:for|from|with|under|about)\s+'
+    r'([A-Za-z][A-Za-z0-9\s&\'-]{1,39})',
     re.IGNORECASE
 )
 _TICKET_LIST_RE = re.compile(
-    r'\b(?:check\s+(?:autotask|tickets?)|any\s+(?:open\s+)?tickets?|show\s+(?:me\s+)?tickets?|list\s+tickets?|open\s+tickets?)\b',
+    r'\b(?:check\s+(?:autotask|tickets?)|any\s+(?:open\s+)?tickets?'
+    r'|show\s+(?:me\s+)?(?:all\s+)?tickets?|list\s+(?:all\s+)?(?:tickets?|companies)'
+    r'|open\s+tickets?|show\s+companies|list\s+companies|show\s+all\s+companies)\b',
+    re.IGNORECASE
+)
+_COMPANY_LIST_RE = re.compile(
+    r'\b(?:list|show|get)\s+(?:me\s+)?(?:all\s+)?companies\b',
     re.IGNORECASE
 )
 
 def _is_computer_action(text: str) -> bool:
-    """True if the user is asking ARTY to do something on the computer."""
     return bool(_ACTION_RE.search(text))
 
 def _extract_ticket_company(text: str) -> str | None:
-    """Return company name from a ticket query, or None if not a ticket query."""
-    m = _TICKET_COMPANY_RE.search(text)
-    return m.group(1).strip() if m else None
+    """Return a company name from the query if one is clearly mentioned."""
+    for pattern in (_COMPANY_NAME_RE, _TICKET_FOR_RE):
+        m = pattern.search(text)
+        if m:
+            name = m.group(1).strip().rstrip(".,?!")
+            # Reject if first word is a stopword
+            first = name.split()[0].lower() if name else ""
+            if first not in _NOT_COMPANY and len(name) >= 2:
+                return name
+    return None
 
 def _is_ticket_list_request(text: str) -> bool:
     return bool(_TICKET_LIST_RE.search(text))
+
+def _is_company_list_request(text: str) -> bool:
+    return bool(_COMPANY_LIST_RE.search(text))
 
 COMMANDS = {
     "/help":    "Show this help",
@@ -305,6 +334,29 @@ def training_mode(trainer, brain, voice, use_mic, ears):
         except KeyboardInterrupt:
             voice.speak("Training interrupted.")
             break
+
+
+def _list_companies(ticket_brain, voice):
+    """List all companies in Autotask."""
+    console.print("  [dim]Fetching company list from Autotask...[/dim]")
+    try:
+        at = ticket_brain._get_autotask()
+        # Empty filter returns all companies
+        data = at._post("Companies/query", {"filter": [{"field": "isActive", "op": "eq", "value": True}]})
+        companies = data.get("items", [])
+    except Exception as e:
+        console.print(f"  [red]Autotask error: {e}[/red]")
+        voice.speak("Couldn't pull the company list — check the connection.")
+        return
+    if not companies:
+        voice.speak("No companies found in Autotask.")
+        return
+    rows = [f"  [cyan]{c.get('companyName','?')}[/cyan]  [dim](id: {c.get('id')})[/dim]"
+            for c in companies[:50]]
+    console.print(Panel("\n".join(rows),
+                        title=f"[bold yellow]Companies ({len(companies)})[/bold yellow]",
+                        border_style="yellow"))
+    voice.speak(f"I can see {len(companies)} companies in Autotask.")
 
 
 def _search_tickets_for_company(company_name: str, ticket_brain, voice):
@@ -616,10 +668,13 @@ def run(start_text_mode: bool = False):
                 console.print(f"  [dim cyan][ROUTE] checking: '{user_input[:60]}'[/dim cyan]")
                 console.print(f"  [dim cyan][ROUTE] is_action={_is_computer_action(user_input)}  last_goal={bool(last_action_goal)}[/dim cyan]")
 
-            # ── ticket intents (checked before generic computer-action) ──────────
+            # ── ticket / Autotask intents (checked before generic computer-action) ─
             company = _extract_ticket_company(user_input)
             if company:
                 _search_tickets_for_company(company, ticket_brain, voice)
+                continue
+            if _is_company_list_request(user_input):
+                _list_companies(ticket_brain, voice)
                 continue
             if _is_ticket_list_request(user_input):
                 _show_tickets(ticket_brain, voice)
