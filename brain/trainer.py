@@ -41,6 +41,20 @@ Other actions:
 - wait: {"seconds": float}
 - done: {}  — ONLY after you have actually performed all required actions in this session
 
+Outlook keyboard shortcuts — ALWAYS use these instead of coordinate clicks:
+- New email:    hotkey {"keys": ["ctrl","n"], "window": "Outlook"}
+- Reply:        hotkey {"keys": ["ctrl","r"], "window": "Outlook"}
+- Forward:      hotkey {"keys": ["ctrl","f"], "window": "Outlook"}
+- Send email:   hotkey {"keys": ["ctrl","enter"], "window": "Message"}
+- To field:     direct_type {"app": "Message", "text": "name"} — Outlook autocompletes contacts
+- Subject:      after To field, press {"key": "tab"} then direct_type {"app": "Message", "text": "subject"}
+- Body:         after subject, press {"key": "tab"} then direct_type {"app": "Message", "text": "body", "new_line": false}
+
+Chrome/browser shortcuts:
+- New tab:      hotkey {"keys": ["ctrl","t"], "window": "Chrome"}
+- Address bar:  hotkey {"keys": ["ctrl","l"], "window": "Chrome"} then direct_type {"app": "Chrome", "text": "url"}
+- Switch tabs:  hotkey {"keys": ["ctrl","tab"], "window": "Chrome"}
+
 Rules:
 - For ANY typing task: use direct_type with the app name, NOT click + type
 - For ANY hotkey that targets a specific app: use hotkey with "window" param — NEVER do focus_window + hotkey as two steps
@@ -221,20 +235,25 @@ class ObserveSession:
         self.observations = []
         self.interval_sec = 15
         self._client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        # Log file — silent, no windows opened
+        import os
+        log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+        os.makedirs(log_dir, exist_ok=True)
+        self.log_path = os.path.join(log_dir, f"observe_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
 
     def stop(self):
         self._stop.set()
 
     def open_notepad(self):
-        self.hands.open_app("notepad")
-        time.sleep(1.5)
-        header = (
-            f"=== ARTY OBSERVATION LOG ===\n"
-            f"Started: {datetime.now().strftime('%d %b %Y %H:%M')}\n"
-            f"Duration: up to {self.duration_min} min\n"
-            f"{'─' * 36}\n"
-        )
-        self.hands.type_into_window("Notepad", header)
+        """Write the log file header — no windows opened, completely silent."""
+        with open(self.log_path, "w", encoding="utf-8") as f:
+            f.write(
+                f"=== ARTY OBSERVATION LOG ===\n"
+                f"Started: {datetime.now().strftime('%d %b %Y %H:%M')}\n"
+                f"Duration: up to {self.duration_min} min\n"
+                f"{'─' * 36}\n\n"
+            )
+        console.print(f"  [dim]  Logging to: {self.log_path}[/dim]")
 
     def _analyze(self, screenshot_b64: str) -> dict | None:
         try:
@@ -259,7 +278,12 @@ class ObserveSession:
             return None
 
     def _write_note(self, text: str):
-        self.hands.type_into_window("Notepad", text, new_line_first=True)
+        """Append a line to the log file silently — no window focus stolen."""
+        try:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(text + "\n")
+        except Exception:
+            pass
 
     def run(self):
         """Observation loop — run this in a daemon thread."""

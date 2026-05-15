@@ -166,13 +166,13 @@ def observe_mode(trainer, voice, use_mic, ears, duration_min: int = 60):
 
     msg = (
         f"Going into watch mode for up to {duration_min} minutes. "
-        "I'll open Notepad and log what I see. "
+        "I'll log what I see quietly in the background — no windows will pop up. "
         "Say 'stop watching' whenever you're done."
     )
     console.print(f"  [green]ARTY:[/green] {msg}")
     voice.speak(msg)
 
-    session.open_notepad()
+    session.open_notepad()  # creates the log file, no UI
 
     obs_thread = threading.Thread(target=session.run, daemon=True)
     obs_thread.start()
@@ -471,8 +471,7 @@ def run():
                     voice.speak(reply)
                 continue
 
-            screenshot_b64 = eyes.capture_all()
-            reply, needs_help = brain.think_streaming(user_input, voice, screenshot_b64=screenshot_b64)
+            reply, needs_help = brain.think_streaming(user_input, voice)
             console.print(f"  [green]ARTY:[/green] {reply}")
 
             if needs_help:
