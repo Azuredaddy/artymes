@@ -80,7 +80,13 @@ class ArtyVoice:
                     if chunk:
                         out.write(np.frombuffer(chunk, dtype=np.int16).reshape(-1, 1))
         except Exception as e:
-            print(f"  [ElevenLabs error — falling back to edge-tts]: {e}")
+            err_str = str(e).lower()
+            if "quota" in err_str or "401" in err_str or "quota_exceeded" in err_str:
+                # Permanently switch to edge-tts for this session — no point retrying
+                self._use_elevenlabs = False
+                print("  [TTS] ElevenLabs quota exceeded — switching to edge-tts for this session.")
+            else:
+                print(f"  [ElevenLabs error — falling back to edge-tts]: {e}")
             _edge_speak(text)
 
     def speak_async(self, text: str):

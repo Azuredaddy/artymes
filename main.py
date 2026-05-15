@@ -28,9 +28,27 @@ _ACTION_RE = re.compile(
     re.IGNORECASE
 )
 
+# Ticket intent — "any tickets from X" / "tickets for X" / "check tickets for X"
+_TICKET_COMPANY_RE = re.compile(
+    r'\b(?:tickets?|ticket)\b.{0,30}\b(?:from|for|about|regarding|at|with)\s+([A-Za-z0-9\s&\'-]{2,40})',
+    re.IGNORECASE
+)
+_TICKET_LIST_RE = re.compile(
+    r'\b(?:check\s+(?:autotask|tickets?)|any\s+(?:open\s+)?tickets?|show\s+(?:me\s+)?tickets?|list\s+tickets?|open\s+tickets?)\b',
+    re.IGNORECASE
+)
+
 def _is_computer_action(text: str) -> bool:
     """True if the user is asking ARTY to do something on the computer."""
     return bool(_ACTION_RE.search(text))
+
+def _extract_ticket_company(text: str) -> str | None:
+    """Return company name from a ticket query, or None if not a ticket query."""
+    m = _TICKET_COMPANY_RE.search(text)
+    return m.group(1).strip() if m else None
+
+def _is_ticket_list_request(text: str) -> bool:
+    return bool(_TICKET_LIST_RE.search(text))
 
 COMMANDS = {
     "/help":    "Show this help",
@@ -289,6 +307,45 @@ def training_mode(trainer, brain, voice, use_mic, ears):
             break
 
 
+def _search_tickets_for_company(company_name: str, ticket_brain, voice):
+    """Search Autotask for open tickets matching a company name and display results."""
+    console.print(f"  [dim]Searching Autotask for tickets from '{company_name}'...[/dim]")
+    try:
+        at = ticket_brain._get_autotask()
+        tickets, matched_name = at.search_tickets_by_company_name(company_name)
+    except Exception as e:
+        console.print(f"  [red]Autotask error: {e}[/red]")
+        voice.speak("I hit an error connecting to Autotask — worth checking the credentials.")
+        return
+
+    if not matched_name:
+        msg = f"I couldn't find a company matching '{company_name}' in Autotask."
+        console.print(f"  [green]ARTY:[/green] {msg}")
+        voice.speak(msg)
+        return
+
+    if not tickets:
+        msg = f"No open tickets for {matched_name} right now — all clear."
+        console.print(f"  [green]ARTY:[/green] {msg}")
+        voice.speak(msg)
+        return
+
+    rows = [
+        f"  [cyan]#{t.get('ticketNumber', t['id'])}[/cyan]  "
+        f"[white]{t.get('title', '')[:60]}[/white]"
+        for t in tickets
+    ]
+    console.print(Panel(
+        "\n".join(rows),
+        title=f"[bold yellow]Open Tickets — {matched_name} ({len(tickets)})[/bold yellow]",
+        border_style="yellow",
+    ))
+    voice.speak(
+        f"I found {len(tickets)} open ticket{'s' if len(tickets) != 1 else ''} "
+        f"for {matched_name}. Use /ticket and the ID to work on one."
+    )
+
+
 def _show_tickets(ticket_brain, voice):
     """Fetch and display open Autotask tickets."""
     console.print("  [dim]Checking Autotask...[/dim]")
@@ -541,6 +598,15 @@ def run():
             if _debug_mode:
                 console.print(f"  [dim cyan][ROUTE] checking: '{user_input[:60]}'[/dim cyan]")
                 console.print(f"  [dim cyan][ROUTE] is_action={_is_computer_action(user_input)}  last_goal={bool(last_action_goal)}[/dim cyan]")
+
+            # ── ticket intents (checked before generic computer-action) ──────────
+            company = _extract_ticket_company(user_input)
+            if company:
+                _search_tickets_for_company(company, ticket_brain, voice)
+                continue
+            if _is_ticket_list_request(user_input):
+                _show_tickets(ticket_brain, voice)
+                continue
 
             if _is_computer_action(user_input):
                 last_action_goal = user_input

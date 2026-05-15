@@ -145,6 +145,56 @@ class ArtyAutotask:
         except AutotaskError:
             return f"Company {company_id}"
 
+    def search_companies_by_name(self, name: str) -> list[dict]:
+        """Find companies whose name contains the search string."""
+        body = {
+            "filter": [{"op": "and", "items": [
+                {"field": "companyName", "op": "contains", "value": name},
+                {"field": "isActive", "op": "eq", "value": True},
+            ]}],
+            "MaxRecords": 10,
+            "includeFields": ["id", "companyName"],
+        }
+        try:
+            data = self._post("Companies/query", body)
+            return data.get("items", [])
+        except AutotaskError as e:
+            console.print(f"  [red][Autotask] search_companies: {e}[/red]")
+            return []
+
+    def get_tickets_for_company(self, company_id: int, max_results: int = 10) -> list[dict]:
+        """Return open tickets for a specific company ID."""
+        body = {
+            "filter": [{"op": "and", "items": [
+                {"field": "companyID", "op": "eq", "value": company_id},
+                {"field": "status", "op": "noteq", "value": STATUS_COMPLETE},
+            ]}],
+            "MaxRecords": max_results,
+            "includeFields": ["id", "title", "status", "ticketNumber",
+                              "companyID", "contactID", "createDate", "priority"],
+        }
+        try:
+            data = self._post("Tickets/query", body)
+            return data.get("items", [])
+        except AutotaskError as e:
+            console.print(f"  [red][Autotask] get_tickets_for_company: {e}[/red]")
+            return []
+
+    def search_tickets_by_company_name(self, company_name: str) -> tuple[list, str]:
+        """Find open tickets for a company by fuzzy name search.
+        Returns (tickets, matched_company_name). Tries partial match first."""
+        companies = self.search_companies_by_name(company_name)
+        if not companies:
+            # Try first word only in case of transcription variation
+            first_word = company_name.split()[0]
+            if first_word != company_name:
+                companies = self.search_companies_by_name(first_word)
+        if not companies:
+            return [], ""
+        best = companies[0]
+        tickets = self.get_tickets_for_company(best["id"])
+        return tickets, best["companyName"]
+
     # ── ticket actions ────────────────────────────────────────────────────────
 
     def add_note(self, ticket_id: int, note_text: str,
