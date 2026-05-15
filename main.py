@@ -514,21 +514,32 @@ def _work_ticket_by_id(ticket_id: int, ticket_brain, voice, use_mic, ears):
 
 
 def _email_intent(text: str) -> str | None:
-    """Detect email send intent. Returns recipient name/address or None."""
-    lower = text.lower()
-    # "send email/mail to X" / "new email to X" / "email X"
-    m = re.search(
-        r'\b(?:send\s+(?:an?\s+)?(?:email|mail|message)\s+to|'
-        r'new\s+(?:email|mail)\s+to|'
-        r'compose\s+(?:an?\s+)?(?:email|mail)\s+to|'
-        r'email)\s+([A-Za-z0-9@._\s\-]{2,40})',
-        text, re.IGNORECASE
-    )
-    if m:
-        recipient = m.group(1).strip().rstrip(".,?!")
-        # Exclude filler matches
-        if recipient.lower() not in {"me", "my", "the", "a", "an", "him", "her", "them"}:
-            return recipient
+    """Detect email send intent. Returns recipient name/address or None.
+    Catches: 'send email to X', 'send a new email to X', 'email to X',
+             'new email to X', 'compose email to X', 'email X a message'."""
+    NOT_RECIP = {"me", "my", "the", "a", "an", "him", "her", "them", "it",
+                 "us", "you", "your", "this", "that", "niraj"}
+
+    # Broad: anything with "email/mail ... to NAME" in any order
+    patterns = [
+        r'\b(?:email|mail|message)\s+to\s+([A-Za-z][A-Za-z0-9\s\.\-]{1,35})',
+        r'\bsend\b.{0,30}\bto\s+([A-Za-z][A-Za-z0-9\s\.\-]{1,35})',
+        r'\bnew\s+(?:email|mail)\s+(?:to\s+)?([A-Za-z][A-Za-z0-9\s\.\-]{1,35})',
+        r'\bcompose\b.{0,20}\bto\s+([A-Za-z][A-Za-z0-9\s\.\-]{1,35})',
+    ]
+    for pat in patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            recipient = m.group(1).strip().rstrip(".,?! ")
+            # Take only the first word if it's clearly a name (stops at prepositions)
+            first_word = recipient.split()[0].lower() if recipient else ""
+            if first_word and first_word not in NOT_RECIP:
+                # Return first 1–3 words (name, not a full sentence)
+                name_words = [w for w in recipient.split()[:3]
+                              if w.lower() not in {"a", "an", "the", "new", "email", "mail"}]
+                name = " ".join(name_words).strip()
+                if name:
+                    return name
     return None
 
 
