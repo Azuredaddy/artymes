@@ -438,7 +438,14 @@ def _work_ticket_by_id(ticket_id: int, ticket_brain, voice, use_mic, ears):
     ticket_brain.close_ticket(plan, closing)
 
 
-def run():
+TEXT_MODE_PHRASES = {
+    "switch to text", "switch to typing", "text mode", "type mode",
+    "keyboard mode", "use keyboard", "use text", "switch to keyboard",
+    "type instead", "let me type", "i'll type", "typing mode",
+    "switch to type function", "type function", "text input",
+}
+
+def run(start_text_mode: bool = False):
     from config import ARTY_VERSION, GITHUB_VERSION_URL
     print_banner(ARTY_VERSION)
 
@@ -491,7 +498,9 @@ def run():
     console.print(f"  [green]ARTY:[/green] {ARTY_GREETING}")
     voice.speak(ARTY_GREETING)
 
-    use_mic = True
+    use_mic = not start_text_mode
+    if not use_mic:
+        console.print("  [dim]Starting in text mode — type your messages. Use /mic to switch to voice.[/dim]")
     last_action_goal = None
 
     while True:
@@ -594,6 +603,14 @@ def run():
 
             console.print(f"\n  [bold white]You:[/bold white] {user_input}")
 
+            # Voice trigger to switch to text mode
+            if use_mic and any(p in user_input.lower() for p in TEXT_MODE_PHRASES):
+                use_mic = False
+                msg = "Switching to text mode — type your messages, press Enter to send."
+                console.print(f"  [green]ARTY:[/green] {msg}")
+                voice.speak(msg)
+                continue
+
             _debug_mode = os.environ.get("ARTY_DEBUG", "0") == "1"
             if _debug_mode:
                 console.print(f"  [dim cyan][ROUTE] checking: '{user_input[:60]}'[/dim cyan]")
@@ -666,4 +683,9 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    import argparse
+    parser = argparse.ArgumentParser(description="ARTY AI Employee")
+    parser.add_argument("--text", "-t", action="store_true",
+                        help="Start in text/keyboard mode instead of mic")
+    args = parser.parse_args()
+    run(start_text_mode=args.text)
