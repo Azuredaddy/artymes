@@ -12,6 +12,7 @@ def _pyttsx3_speak(text: str):
         import pyttsx3
         engine = pyttsx3.init()
         engine.setProperty("rate", 165)
+        engine.setProperty("volume", 1.0)  # max volume
         engine.say(text)
         engine.runAndWait()
         engine.stop()
