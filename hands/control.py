@@ -209,5 +209,35 @@ class ArtyHands:
             self.open_app(params["app"])
         elif atype == "wait":
             time.sleep(params.get("seconds", 1))
+        elif atype == "click_element":
+            # Click a named UI element inside a specific app — no coordinates needed.
+            # params: {app: "8x8", element: "Create ticket", element_type: "Button" (optional)}
+            # This is the safest way to click on one app's button without hitting another app's.
+            if _HAS_WINCTRL:
+                ok = _win_ctrl.find_and_click_element(
+                    params.get("app", ""),
+                    params.get("element", ""),
+                    params.get("element_type"),
+                )
+                if not ok:
+                    narration = f"Couldn't find '{params.get('element')}' in '{params.get('app')}'"
+            else:
+                narration = "UI automation unavailable — pywinauto not installed"
+        elif atype == "list_elements":
+            # Enumerate all clickable elements in a window so ARTY knows what to target.
+            # params: {app: "8x8"}
+            # Returns element list as narration string for ARTY to reason about.
+            if _HAS_WINCTRL:
+                elements = _win_ctrl.list_interactive_elements(params.get("app", ""))
+                if elements:
+                    lines = [
+                        f"  [{e['type']}] '{e['name']}' id='{e['auto_id']}'"
+                        for e in elements[:40]  # cap at 40 to avoid wall of text
+                    ]
+                    narration = f"Elements in '{params.get('app')}':\n" + "\n".join(lines)
+                else:
+                    narration = f"No elements found in '{params.get('app')}'"
+            else:
+                narration = "UI automation unavailable"
 
         return narration

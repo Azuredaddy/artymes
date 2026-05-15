@@ -10,35 +10,114 @@ from rich.console import Console
 
 console = Console()
 
-CU_BETA = "computer-use-2025-01-24"
-CU_TOOL_TYPE = "computer_20250124"
+CU_BETA        = "computer-use-2025-01-24"
+CU_TOOL_TYPE   = "computer_20250124"
+ZOOM_REFINE    = True   # Two-pass zoom on every click for small-icon precision
+ZOOM_RADIUS    = 200    # Logical pixels around click point to zoom into
 
 SYSTEM_PROMPT = """You are ARTY, an AI employee controlling a Windows computer for your trainer.
-Complete tasks efficiently. Narrate briefly what you're doing as you go (casual, first person).
-Prefer keyboard shortcuts over mouse clicks where possible.
-After each action, check the screenshot to confirm it worked before continuing.
-When the task is fully complete, say so and stop using tools."""
+
+SETUP: The user has 3 monitors running multiple apps simultaneously (Chrome, 8x8, Outlook, Teams, etc.).
+Many apps have visually identical buttons in the same screen position (e.g. every app has an X close button).
+ALWAYS target the correct app window — never click a button that belongs to the wrong application.
+
+HOW TO WORK:
+- Complete tasks efficiently. Narrate briefly what you're doing (casual, first person).
+- Prefer keyboard shortcuts over mouse clicks where possible.
+- After each action, wait for the screenshot to confirm it worked before continuing.
+- For small icons (plus buttons, close buttons, checkboxes) be very precise with coordinates.
+  Click the exact centre of the icon — not near it.
+- If a click doesn't work, try a slightly different coordinate rather than repeating the same one.
+- When the task is fully complete, say so and stop using tools."""
 
 
 class ArtyComputerUse:
     def __init__(self, eyes, voice):
         from config import ANTHROPIC_API_KEY, COMPUTER_USE_MODEL
-        self.eyes = eyes
-        self.voice = voice
-        self.model = COMPUTER_USE_MODEL
+        self.eyes   = eyes
+        self.voice  = voice
+        self.model  = COMPUTER_USE_MODEL
         self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        self.x_scale = 1.0
+        self.y_scale = 1.0
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+
+    def _screenshot_with_scale(self) -> tuple:
+        """Take a screenshot and update stored DPI scale factors.
+        Returns (b64, img_w, img_h) ready for the Claude tools block."""
+        b64, img_w, img_h, xs, ys = self.eyes.capture_primary_native()
+        self.x_scale = xs
+        self.y_scale = ys
+        return b64, img_w, img_h
+
+    def _to_logical(self, x: float, y: float) -> tuple:
+        """Convert image-pixel coordinates (from Claude) → pyautogui logical coords."""
+        return int(x * self.x_scale), int(y * self.y_scale)
+
+    def _zoom_and_refine(self, rough_lx: int, rough_ly: int, hint: str) -> tuple:
+        """Two-pass precision: zoom into the region and ask Claude for the exact spot.
+        rough_lx/ly are already in logical coords. Returns refined (logical_x, logical_y)."""
+        try:
+            b64, zw, zh, rl, rt, rw, rh = self.eyes.capture_region_for_zoom(
+                rough_lx, rough_ly, radius=ZOOM_RADIUS
+            )
+            refine_messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                f"This is a {zw}×{zh} zoomed view of the screen. "
+                                f"I need to click: {hint}. "
+                                "Reply with ONLY a JSON object: {\"x\": <int>, \"y\": <int>} "
+                                "giving the exact pixel in THIS zoomed image to click. "
+                                "No explanation, no markdown."
+                            ),
+                        },
+                    ],
+                }
+            ]
+            resp = self.client.messages.create(
+                model=self.model,
+                max_tokens=64,
+                messages=refine_messages,
+            )
+            import json, re
+            raw = resp.content[0].text.strip()
+            m = re.search(r'\{[^}]+\}', raw)
+            if m:
+                coords = json.loads(m.group())
+                zx, zy = int(coords["x"]), int(coords["y"])
+                refined_lx = int(rl + (zx / zw) * rw)
+                refined_ly = int(rt + (zy / zh) * rh)
+                console.print(
+                    f"  [dim cyan]  zoom-refine: rough=({rough_lx},{rough_ly}) "
+                    f"→ refined=({refined_lx},{refined_ly})[/dim cyan]"
+                )
+                return refined_lx, refined_ly
+        except Exception as e:
+            console.print(f"  [dim red]  zoom-refine failed ({e}), using rough coords[/dim red]")
+        return rough_lx, rough_ly
+
+    # ── main task loop ────────────────────────────────────────────────────────
 
     def execute_task(self, goal: str, max_iterations: int = 30) -> bool:
         """Run a task using Claude Computer Use. Returns True if completed."""
         import pyautogui
 
-        screenshot_b64, disp_w, disp_h = self.eyes.capture_primary_native()
+        b64, img_w, img_h = self._screenshot_with_scale()
 
         tools = [{
             "type": CU_TOOL_TYPE,
             "name": "computer",
-            "display_width_px": disp_w,
-            "display_height_px": disp_h,
+            "display_width_px":  img_w,
+            "display_height_px": img_h,
         }]
 
         messages = [{
@@ -46,7 +125,7 @@ class ArtyComputerUse:
             "content": [
                 {
                     "type": "image",
-                    "source": {"type": "base64", "media_type": "image/jpeg", "data": screenshot_b64},
+                    "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
                 },
                 {"type": "text", "text": goal},
             ],
@@ -73,7 +152,6 @@ class ArtyComputerUse:
 
             messages.append({"role": "assistant", "content": response.content})
 
-            # Speak any text narration Claude provides
             for block in response.content:
                 if hasattr(block, "text") and block.text.strip():
                     narration = block.text.strip()
@@ -81,15 +159,12 @@ class ArtyComputerUse:
                     self.voice.speak(narration[:200])
 
             if response.stop_reason == "end_turn":
-                # Only count as success if we actually called tools — text-only responses
-                # mean Claude narrated but didn't do anything
                 did_something = any(
                     b.type == "tool_use" for b in messages[-1]["content"]
                     if hasattr(b, "type")
                 )
                 return did_something
 
-            # Execute tool calls and feed results back
             tool_results = []
             has_tool_call = False
 
@@ -102,13 +177,22 @@ class ArtyComputerUse:
                 console.print(f"  [dim]  → CU {action} {dict(list(block.input.items())[:3])}[/dim]")
 
                 if action == "screenshot":
-                    b64, _, _ = self.eyes.capture_primary_native()
-                    content = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}}]
+                    b64, img_w, img_h = self._screenshot_with_scale()
+                    # Refresh tool dimensions in case resolution changed
+                    tools[0]["display_width_px"]  = img_w
+                    tools[0]["display_height_px"] = img_h
+                    content = [{"type": "image", "source": {
+                        "type": "base64", "media_type": "image/jpeg", "data": b64
+                    }}]
                 else:
-                    self._execute(action, block.input)
+                    self._execute(action, block.input, hint=goal)
                     time.sleep(0.7)
-                    b64, _, _ = self.eyes.capture_primary_native()
-                    content = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}}]
+                    b64, img_w, img_h = self._screenshot_with_scale()
+                    tools[0]["display_width_px"]  = img_w
+                    tools[0]["display_height_px"] = img_h
+                    content = [{"type": "image", "source": {
+                        "type": "base64", "media_type": "image/jpeg", "data": b64
+                    }}]
 
                 tool_results.append({
                     "type": "tool_result",
@@ -124,8 +208,11 @@ class ArtyComputerUse:
         self.voice.speak("I've hit my iteration limit on this one.")
         return False
 
-    def _execute(self, action: str, params: dict):
-        """Translate Computer Use tool call into pyautogui / clipboard actions."""
+    # ── action executor ───────────────────────────────────────────────────────
+
+    def _execute(self, action: str, params: dict, hint: str = ""):
+        """Translate Computer Use tool call into pyautogui actions.
+        Applies DPI scale so image-pixel coords → pyautogui logical coords."""
         import pyautogui
         try:
             import pyperclip
@@ -134,24 +221,31 @@ class ArtyComputerUse:
             _clipboard = False
 
         coord = params.get("coordinate", [0, 0])
-        x, y = int(coord[0]), int(coord[1])
+        # Convert from image-pixel space → pyautogui logical-pixel space
+        raw_x, raw_y = coord[0], coord[1]
+        lx, ly = self._to_logical(raw_x, raw_y)
+
+        is_click = action in ("left_click", "right_click", "middle_click", "double_click")
+
+        if is_click and ZOOM_REFINE:
+            lx, ly = self._zoom_and_refine(lx, ly, hint or action)
 
         if action == "left_click":
-            pyautogui.click(x, y)
+            pyautogui.click(lx, ly)
         elif action == "right_click":
-            pyautogui.rightClick(x, y)
+            pyautogui.rightClick(lx, ly)
         elif action == "middle_click":
-            pyautogui.middleClick(x, y)
+            pyautogui.middleClick(lx, ly)
         elif action == "double_click":
-            pyautogui.doubleClick(x, y)
+            pyautogui.doubleClick(lx, ly)
         elif action == "mouse_move":
-            pyautogui.moveTo(x, y, duration=0.3)
+            pyautogui.moveTo(lx, ly, duration=0.3)
         elif action == "left_click_drag":
             start = params.get("startCoordinate", [0, 0])
-            pyautogui.drag(start[0], start[1], x - start[0], y - start[1],
-                           duration=0.5, button="left")
+            slx, sly = self._to_logical(start[0], start[1])
+            pyautogui.drag(slx, sly, lx - slx, ly - sly, duration=0.5, button="left")
         elif action == "key":
-            keys = params.get("text", "").replace("super", "win")
+            keys  = params.get("text", "").replace("super", "win")
             parts = [k.strip() for k in keys.split("+")]
             if len(parts) > 1:
                 pyautogui.hotkey(*parts)
@@ -166,8 +260,8 @@ class ArtyComputerUse:
                 pyautogui.typewrite(text, interval=0.05)
         elif action == "scroll":
             direction = params.get("direction", "down")
-            amount = int(params.get("amount", 3))
+            amount    = int(params.get("amount", 3))
             scroll_val = amount if direction == "up" else -amount
-            pyautogui.scroll(scroll_val, x=x, y=y)
+            pyautogui.scroll(scroll_val, x=lx, y=ly)
         elif action == "cursor_position":
-            pass  # read-only, no execution needed
+            pass

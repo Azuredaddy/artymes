@@ -79,19 +79,92 @@ class ArtyEyes:
         return b64, primary["left"], primary["top"], xs, ys
 
     def capture_primary_native(self) -> tuple:
-        """Capture primary monitor and return (base64_jpeg, real_width, real_height).
-        Used by Computer Use API — Claude needs real pixel dimensions for coordinates."""
+        """Capture primary monitor. Returns (b64, img_w, img_h, x_scale, y_scale).
+
+        img_w/img_h  — exact JPEG dimensions; pass to Claude as display_width_px/display_height_px.
+        x_scale/y_scale — multiply Claude's returned coordinates by these to get pyautogui
+                          logical-pixel coordinates, correcting for DPI scaling and resize."""
         monitor = self.sct.monitors[1] if len(self.sct.monitors) > 1 else self.sct.monitors[0]
         shot = self.sct.grab(monitor)
         img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
-        real_w, real_h = img.width, img.height
-        # Scale down for API payload size, but return REAL dimensions for Claude's coord space
+
+        # pyautogui works in logical pixels; mss captures physical pixels.
+        # We need the logical resolution to compute the correction factor.
+        try:
+            import pyautogui as _pag
+            logical_w, logical_h = _pag.size()
+        except Exception:
+            logical_w, logical_h = img.width, img.height  # fallback: assume 1:1
+
         if img.width > 1366:
             ratio = 1366 / img.width
             img = img.resize((1366, int(img.height * ratio)), Image.LANCZOS)
+
+        img_w, img_h = img.size
+        # image coord × scale → pyautogui logical coord (absorbs both resize and DPI factors)
+        x_scale = logical_w / img_w
+        y_scale = logical_h / img_h
+
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=80)
-        return base64.b64encode(buf.getvalue()).decode("utf-8"), real_w, real_h
+        return base64.b64encode(buf.getvalue()).decode("utf-8"), img_w, img_h, x_scale, y_scale
+
+    def capture_region_for_zoom(self, cx_logical: int, cy_logical: int,
+                                radius: int = 200, monitor_idx: int = 1) -> tuple:
+        """Zoom into a region around a logical-pixel coordinate for precision targeting.
+
+        Returns (b64, zoom_w, zoom_h, region_left, region_top, region_w, region_h).
+        To convert a zoomed-image coord (zx, zy) back to a logical screen coord:
+            screen_x = region_left + (zx / zoom_w) * region_w
+            screen_y = region_top  + (zy / zoom_h) * region_h
+        """
+        try:
+            import pyautogui as _pag
+            logical_w, logical_h = _pag.size()
+        except Exception:
+            logical_w, logical_h = 1920, 1080
+
+        monitor = (self.sct.monitors[monitor_idx]
+                   if monitor_idx < len(self.sct.monitors)
+                   else self.sct.monitors[1])
+        phys_w, phys_h = monitor["width"], monitor["height"]
+
+        # Convert logical radius → physical pixels for mss grab
+        px_scale_x = phys_w / logical_w
+        px_scale_y = phys_h / logical_h
+        cx_phys = int(cx_logical * px_scale_x)
+        cy_phys = int(cy_logical * px_scale_y)
+        rad_phys_x = int(radius * px_scale_x)
+        rad_phys_y = int(radius * px_scale_y)
+
+        left_phys  = max(0, cx_phys - rad_phys_x)
+        top_phys   = max(0, cy_phys - rad_phys_y)
+        right_phys = min(phys_w, cx_phys + rad_phys_x)
+        bot_phys   = min(phys_h, cy_phys + rad_phys_y)
+
+        region = {
+            "left":   monitor["left"] + left_phys,
+            "top":    monitor["top"]  + top_phys,
+            "width":  right_phys - left_phys,
+            "height": bot_phys   - top_phys,
+        }
+        shot = self.sct.grab(region)
+        img  = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+
+        zoom_w, zoom_h = 512, 512
+        img = img.resize((zoom_w, zoom_h), Image.LANCZOS)
+
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=90)
+        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+        # Region in logical coordinates (what pyautogui understands)
+        region_left = left_phys  / px_scale_x
+        region_top  = top_phys   / px_scale_y
+        region_w    = (right_phys - left_phys) / px_scale_x
+        region_h    = (bot_phys   - top_phys)  / px_scale_y
+
+        return b64, zoom_w, zoom_h, region_left, region_top, region_w, region_h
 
     def get_screen_size(self, monitor: int = 1) -> tuple:
         m = self.sct.monitors[min(monitor, len(self.sct.monitors) - 1)]

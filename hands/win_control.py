@@ -223,6 +223,91 @@ class ArtyWinControl:
     def click_control(self, title_contains: str, control_name: str = None) -> bool:
         return win32_focus(title_contains)
 
+    def find_and_click_element(self, app_title: str, element_name: str,
+                               element_type: str = None) -> bool:
+        """Click a named UI element inside a specific app window using Windows Accessibility.
+
+        Searches by element name (partial, case-insensitive) and optional control type.
+        This lets ARTY click the 'X' in 8x8 without hitting Chrome's 'X', for example.
+        Tries UIA backend first (modern apps / Electron), then Win32 backend.
+        """
+        if not _HAS_PYWINAUTO:
+            _dbg("pywinauto unavailable — cannot click by element name")
+            return False
+
+        for backend in ("uia", "win32"):
+            try:
+                app = Application(backend=backend).connect(
+                    title_re=f".*{app_title}.*", timeout=3
+                )
+                dlg = app.top_window()
+                criteria: dict = {}
+                if element_type:
+                    criteria["control_type"] = element_type
+                for name_arg in (
+                    {"title": element_name},
+                    {"title_re": f".*{element_name}.*"},
+                    {"auto_id": element_name},
+                ):
+                    try:
+                        ctrl = dlg.child_window(**{**criteria, **name_arg})
+                        ctrl.wait("visible enabled", timeout=2)
+                        ctrl.click_input()
+                        _dbg(f"clicked '{element_name}' in '{app_title}' via {backend}")
+                        return True
+                    except Exception:
+                        continue
+            except Exception as e:
+                _dbg(f"backend={backend} connect failed: {e}")
+                continue
+        _dbg(f"find_and_click_element: '{element_name}' not found in '{app_title}'")
+        return False
+
+    def list_interactive_elements(self, app_title: str) -> list:
+        """Return all visible, enabled interactive elements in a window.
+
+        Each entry: {name, type, auto_id, rect, backend}.
+        Useful for ARTY to discover what it can click in an app without guessing coordinates.
+        Tries UIA first (richer data), falls back to Win32.
+        """
+        if not _HAS_PYWINAUTO:
+            return []
+
+        for backend in ("uia", "win32"):
+            try:
+                app = Application(backend=backend).connect(
+                    title_re=f".*{app_title}.*", timeout=3
+                )
+                dlg  = app.top_window()
+                results = []
+                for ctrl in dlg.descendants():
+                    try:
+                        if not ctrl.is_visible() or not ctrl.is_enabled():
+                            continue
+                        rect = ctrl.rectangle()
+                        if rect.width() == 0 or rect.height() == 0:
+                            continue
+                        results.append({
+                            "name":     ctrl.window_text().strip(),
+                            "type":     ctrl.friendly_class_name(),
+                            "auto_id":  getattr(ctrl, "automation_id", lambda: "")(),
+                            "rect": {
+                                "left":   rect.left,
+                                "top":    rect.top,
+                                "right":  rect.right,
+                                "bottom": rect.bottom,
+                            },
+                            "backend": backend,
+                        })
+                    except Exception:
+                        continue
+                _dbg(f"list_interactive_elements: {len(results)} elements in '{app_title}' ({backend})")
+                return results
+            except Exception as e:
+                _dbg(f"list_interactive_elements backend={backend} failed: {e}")
+                continue
+        return []
+
     def list_windows(self) -> list:
         titles = win32_list_windows()
         if titles:
