@@ -513,6 +513,25 @@ def _work_ticket_by_id(ticket_id: int, ticket_brain, voice, use_mic, ears):
     ticket_brain.close_ticket(plan, closing)
 
 
+def _email_intent(text: str) -> str | None:
+    """Detect email send intent. Returns recipient name/address or None."""
+    lower = text.lower()
+    # "send email/mail to X" / "new email to X" / "email X"
+    m = re.search(
+        r'\b(?:send\s+(?:an?\s+)?(?:email|mail|message)\s+to|'
+        r'new\s+(?:email|mail)\s+to|'
+        r'compose\s+(?:an?\s+)?(?:email|mail)\s+to|'
+        r'email)\s+([A-Za-z0-9@._\s\-]{2,40})',
+        text, re.IGNORECASE
+    )
+    if m:
+        recipient = m.group(1).strip().rstrip(".,?!")
+        # Exclude filler matches
+        if recipient.lower() not in {"me", "my", "the", "a", "an", "him", "her", "them"}:
+            return recipient
+    return None
+
+
 TEXT_MODE_PHRASES = {
     "switch to text", "switch to typing", "text mode", "type mode",
     "keyboard mode", "use keyboard", "use text", "switch to keyboard",
@@ -577,6 +596,18 @@ def run(start_text_mode: bool = False):
     if not use_mic:
         console.print("  [dim]Starting in text mode — type your messages. Use /mic to switch to voice.[/dim]")
     last_action_goal = None
+
+    # Email composition state — persists across turns while gathering details
+    _email_draft: dict | None = None   # {to, subject, body} — None = no email in progress
+
+    # Lazy Outlook COM instance
+    _outlook = None
+    def _get_outlook():
+        nonlocal _outlook
+        if _outlook is None:
+            from hands.outlook_com import ArtyOutlook
+            _outlook = ArtyOutlook()
+        return _outlook
 
     while True:
         try:
@@ -701,6 +732,82 @@ def run(start_text_mode: bool = False):
                 continue
             elif _at_intent == "list_tickets":
                 _show_tickets(ticket_brain, voice)
+                continue
+
+            # ── Email composition via Outlook COM ─────────────────────────────────
+            _recip = _email_intent(user_input)
+            if _recip:
+                # Start a new email draft
+                _email_draft = {"to": _recip, "subject": None, "body": None}
+                msg = f"Sure — email to {_recip}. What's the subject?"
+                console.print(f"  [green]ARTY:[/green] {msg}")
+                voice.speak(msg)
+                continue
+
+            if _email_draft is not None:
+                # We're mid-composition — parse subject/body from this message
+                txt = user_input.strip()
+                lower_txt = txt.lower()
+
+                # Detect "cancel" while composing
+                if any(w in lower_txt for w in ("cancel", "forget it", "never mind", "stop")):
+                    _email_draft = None
+                    msg = "Email cancelled — no problem."
+                    console.print(f"  [green]ARTY:[/green] {msg}")
+                    voice.speak(msg)
+                    continue
+
+                # Extract subject/body from "subject is X and body/email is Y"
+                subj_m = re.search(r'\bsubject\s+(?:is\s+|line\s+is\s+)?["\']?(.+?)(?:\band\b|body|email is|message is|$)', txt, re.IGNORECASE)
+                body_m = re.search(r'\b(?:body|email|message|content)\s+(?:is\s+|says?\s+)?["\']?(.+)', txt, re.IGNORECASE)
+
+                if subj_m:
+                    _email_draft["subject"] = subj_m.group(1).strip().rstrip("\"'.,")
+                if body_m:
+                    _email_draft["body"] = body_m.group(1).strip().rstrip("\"'.,")
+
+                # If no explicit markers, fill whichever field is missing in order
+                if not subj_m and not body_m:
+                    if _email_draft["subject"] is None:
+                        _email_draft["subject"] = txt
+                    elif _email_draft["body"] is None:
+                        _email_draft["body"] = txt
+
+                # Check what's still missing
+                if _email_draft["subject"] is None:
+                    msg = "Got it — what should the subject be?"
+                    console.print(f"  [green]ARTY:[/green] {msg}")
+                    voice.speak(msg)
+                    continue
+                if _email_draft["body"] is None:
+                    msg = f"Subject is '{_email_draft['subject']}'. What should the email say?"
+                    console.print(f"  [green]ARTY:[/green] {msg}")
+                    voice.speak(msg)
+                    continue
+
+                # We have everything — open the draft in Outlook for review
+                console.print(f"  [dim]Opening Outlook draft via COM...[/dim]")
+                console.print(f"  [dim]  To: {_email_draft['to']}  Subject: {_email_draft['subject']}[/dim]")
+                try:
+                    ol = _get_outlook()
+                    ok = ol.send_email(
+                        to=_email_draft["to"],
+                        subject=_email_draft["subject"],
+                        body=_email_draft["body"],
+                        display_first=True,   # shows draft window — user hits Send
+                    )
+                    if ok:
+                        msg = (f"Done — I've opened the email to {_email_draft['to']} with "
+                               f"subject '{_email_draft['subject']}'. "
+                               f"Have a look and hit Send when you're happy.")
+                    else:
+                        msg = "Outlook COM didn't respond — is Outlook open and logged in?"
+                    console.print(f"  [green]ARTY:[/green] {msg}")
+                    voice.speak(msg)
+                except Exception as e:
+                    console.print(f"  [red]Outlook COM error: {e}[/red]")
+                    voice.speak("Hit an error opening Outlook — it might not be running.")
+                _email_draft = None
                 continue
 
             if _is_computer_action(user_input):
