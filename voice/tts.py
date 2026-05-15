@@ -1,35 +1,49 @@
 import io
-import os
+import asyncio
 import numpy as np
 import sounddevice as sd
-import soundfile as sf
 from elevenlabs import ElevenLabs, VoiceSettings
 from config import ELEVENLABS_API_KEY, ARTY_VOICE_ID
 
 
-def _local_speak(text: str):
-    """Windows SAPI via PowerShell — reliable fallback when ElevenLabs is unavailable."""
+def _edge_speak(text: str, voice: str = "en-AU-WilliamNeural"):
+    """Microsoft Edge TTS — free neural voices, plays via sounddevice."""
     try:
-        import subprocess
-        safe = text.replace("'", "''").replace('"', '`"')
-        subprocess.run(
-            ["powershell", "-Command",
-             f"Add-Type -AssemblyName System.Speech; "
-             f"$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-             f"$s.Volume = 100; $s.Rate = 1; $s.Speak('{safe}')"],
-            check=False, capture_output=True
-        )
-    except Exception:
-        try:
-            import pyttsx3
-            engine = pyttsx3.init()
-            engine.setProperty("rate", 165)
-            engine.setProperty("volume", 1.0)
-            engine.say(text)
-            engine.runAndWait()
-            engine.stop()
-        except Exception as e:
-            print(f"  [ARTY would say]: {text}")
+        import edge_tts
+        import av
+
+        async def _generate():
+            communicate = edge_tts.Communicate(text, voice)
+            mp3_data = b""
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    mp3_data += chunk["data"]
+            return mp3_data
+
+        mp3_data = asyncio.run(_generate())
+        if not mp3_data:
+            raise RuntimeError("edge-tts returned no audio")
+
+        # Decode mp3 with PyAV (already installed via faster-whisper)
+        container = av.open(io.BytesIO(mp3_data))
+        stream = container.streams.audio[0]
+        sample_rate = stream.rate
+        samples = []
+        for frame in container.decode(stream):
+            samples.append(frame.to_ndarray())
+        container.close()
+
+        audio = np.concatenate(samples, axis=1).flatten().astype(np.float32)
+        # Normalise to [-1, 1]
+        if audio.max() > 1.0:
+            audio = audio / 32768.0
+
+        sd.play(audio, sample_rate)
+        sd.wait()
+
+    except Exception as e:
+        print(f"  [edge-tts error]: {e}")
+        print(f"  [ARTY would say]: {text}")
 
 
 class ArtyVoice:
@@ -45,16 +59,15 @@ class ArtyVoice:
                 use_speaker_boost=True
             )
         else:
-            print("  [TTS] No ElevenLabs keys — using local voice.")
+            print("  [TTS] No ElevenLabs keys — using edge-tts.")
 
     def speak(self, text: str):
         if not text.strip():
             return
         if not self._use_elevenlabs:
-            _local_speak(text)
+            _edge_speak(text)
             return
         try:
-            # PCM output: raw 16-bit samples at 24kHz — no MP3 decoding, plays on first chunk
             chunks = self.client.text_to_speech.convert(
                 voice_id=self.voice_id,
                 text=text,
@@ -67,8 +80,8 @@ class ArtyVoice:
                     if chunk:
                         out.write(np.frombuffer(chunk, dtype=np.int16).reshape(-1, 1))
         except Exception as e:
-            print(f"  [ElevenLabs error — falling back to local voice]: {e}")
-            _local_speak(text)
+            print(f"  [ElevenLabs error — falling back to edge-tts]: {e}")
+            _edge_speak(text)
 
     def speak_async(self, text: str):
         import threading
