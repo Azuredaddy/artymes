@@ -46,9 +46,28 @@ ACK = [
 
 STOP_WORDS = {"bye arty", "that's it arty", "stop arty", "bye", "done arty", "finish arty"}
 
+ANY_QUESTIONS_TRIGGERS = {
+    "any questions", "any question", "got any questions", "do you have questions",
+    "anything you want to ask", "anything unclear", "make sense", "does that make sense",
+    "clear so far", "you following", "you got that",
+}
+
+REVIEW_SYSTEM = """You are ARTY, an AI employee who has just been briefed on some information.
+Your colleague has asked if you have any questions.
+
+Review the conversation so far and ask UP TO 2 short, specific questions about anything that was unclear,
+ambiguous, or would help you do your job better. Focus on: client names, systems used, processes, priorities.
+
+If everything is clear, say "No, I think I've got it." — don't make up questions for the sake of it.
+Keep each question under 15 words. Be direct, not chatty."""
+
 
 def is_stop(text: str) -> bool:
     return any(s in text.lower() for s in STOP_WORDS)
+
+
+def is_any_questions(text: str) -> bool:
+    return any(t in text.lower() for t in ANY_QUESTIONS_TRIGGERS)
 
 
 def brief():
@@ -78,6 +97,25 @@ def brief():
             if is_stop(text):
                 voice.speak("Got it. Bye.")
                 break
+
+            # "Any questions?" — ARTY reviews everything and asks what it needs
+            if is_any_questions(text):
+                try:
+                    resp = client.messages.create(
+                        model=CLAUDE_MODEL,
+                        max_tokens=120,
+                        system=REVIEW_SYSTEM,
+                        messages=history + [{"role": "user", "content": text}],
+                    )
+                    reply = resp.content[0].text.strip()
+                except Exception:
+                    reply = "No, I think I've got it."
+                print(f"  ARTY: {reply}")
+                voice.speak(reply)
+                history.append({"role": "user", "content": text})
+                history.append({"role": "assistant", "content": reply})
+                memory.save_message("assistant", reply, session_id)
+                continue
 
             msg_count += 1
 
