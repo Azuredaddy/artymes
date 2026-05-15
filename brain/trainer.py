@@ -285,33 +285,57 @@ class ObserveSession:
         except Exception:
             pass
 
+    @staticmethod
+    def _screen_changed(prev_b64: str, curr_b64: str, threshold: float = 0.02) -> bool:
+        """Quick pixel diff — returns True if screens differ by more than threshold fraction."""
+        try:
+            import base64, io
+            from PIL import Image, ImageChops
+            import numpy as np
+            prev_img = Image.open(io.BytesIO(base64.b64decode(prev_b64))).convert("L").resize((160, 90))
+            curr_img = Image.open(io.BytesIO(base64.b64decode(curr_b64))).convert("L").resize((160, 90))
+            diff = np.array(ImageChops.difference(prev_img, curr_img), dtype=float)
+            return (diff.mean() / 255) > threshold
+        except Exception:
+            return True  # assume changed if comparison fails
+
     def run(self):
-        """Observation loop — run this in a daemon thread."""
+        """Observation loop — checks for screen changes every 2s, only calls Claude when something changed."""
         start_time = time.time()
+        prev_b64 = None
+        cooldown = 0  # seconds remaining before next Claude call allowed
+
         while not self._stop.is_set():
             elapsed_sec = time.time() - start_time
             if elapsed_sec >= self.duration_min * 60:
                 self._stop.set()
                 break
 
-            screenshot_b64 = self.eyes.capture_all()
-            result = self._analyze(screenshot_b64)
+            curr_b64 = self.eyes.capture_all()
+            changed = prev_b64 is None or self._screen_changed(prev_b64, curr_b64)
 
-            if result:
-                ts = datetime.now().strftime("%H:%M")
-                obs = result.get("observation", "")
-                q = result.get("question")
-                line = f"[{ts}] {obs}"
-                if q:
-                    line += f"\n  Q: {q}"
-                self._write_note(line)
-                self.observations.append(result)
-                console.print(f"  [dim cyan][Observe] {obs}[/dim cyan]")
+            if changed and cooldown <= 0:
+                result = self._analyze(curr_b64)
+                if result:
+                    obs = result.get("observation", "screen unchanged")
+                    if obs != "screen unchanged":
+                        ts = datetime.now().strftime("%H:%M:%S")
+                        q = result.get("question")
+                        line = f"[{ts}] {obs}"
+                        if q:
+                            line += f"\n  Q: {q}"
+                        self._write_note(line)
+                        self.observations.append(result)
+                        console.print(f"  [dim cyan][Observe] {obs}[/dim cyan]")
+                prev_b64 = curr_b64
+                cooldown = 8  # wait at least 8s before next Claude call to avoid spamming
 
-            for _ in range(self.interval_sec * 2):
+            # Poll every 2 seconds so fast actions (5s ticket close) get caught
+            for _ in range(4):
                 if self._stop.is_set():
                     break
                 time.sleep(0.5)
+            cooldown = max(0, cooldown - 2)
 
         elapsed_min = (time.time() - start_time) / 60
         self._write_note(
