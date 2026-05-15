@@ -33,13 +33,13 @@ def _edge_speak(text: str, voice: str = "en-AU-WilliamNeural"):
             samples.append(frame.to_ndarray())
         container.close()
 
-        audio = np.concatenate(samples, axis=1).flatten().astype(np.float32)
-        # Normalise to [-1, 1]
-        if audio.max() > 1.0:
-            audio = audio / 32768.0
+        audio = np.concatenate(samples, axis=1).flatten()
+        # Convert to int16 — same format ElevenLabs uses with sd.OutputStream
+        if audio.dtype != np.int16:
+            audio = (audio / max(np.abs(audio).max(), 1) * 32767).astype(np.int16)
 
-        sd.play(audio, sample_rate)
-        sd.wait()
+        with sd.OutputStream(samplerate=sample_rate, channels=1, dtype="int16") as out:
+            out.write(audio.reshape(-1, 1))
 
     except Exception as e:
         print(f"  [edge-tts error]: {e}")
