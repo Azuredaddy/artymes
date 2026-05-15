@@ -1,0 +1,214 @@
+"""
+ArtyAutotask — Autotask PSA REST API client.
+
+Reads tickets, adds notes, updates status. No personal data is cached —
+all ticket content is processed in memory only and never written to
+ChromaDB or SQLite.
+"""
+import requests
+import time
+from datetime import datetime, timezone
+from rich.console import Console
+
+console = Console()
+
+ZONE_DETECT_URL = "https://webservices2.autotask.net/atservicesrest/v1.0/zoneInformation?user={email}"
+
+# Autotask ticket status IDs (standard defaults — may differ per account)
+STATUS_NEW        = 1
+STATUS_IN_PROGRESS = 8
+STATUS_WAITING    = 9
+STATUS_COMPLETE   = 5
+
+# Ticket queue/resource filter — set via .env
+AUTOTASK_QUEUE_ID    = None  # optional: filter by queue
+AUTOTASK_RESOURCE_ID = None  # optional: filter by assigned resource
+
+
+class AutotaskError(Exception):
+    pass
+
+
+class ArtyAutotask:
+
+    def __init__(self):
+        from config import (AUTOTASK_API_USER, AUTOTASK_API_SECRET,
+                            AUTOTASK_INTEGRATION_CODE, AUTOTASK_ZONE_URL)
+        self.user    = AUTOTASK_API_USER
+        self.secret  = AUTOTASK_API_SECRET
+        self.int_code = AUTOTASK_INTEGRATION_CODE
+
+        if AUTOTASK_ZONE_URL:
+            self.base = AUTOTASK_ZONE_URL.rstrip("/") + "/ATServicesRest/v1.0"
+        else:
+            self.base = self._detect_zone()
+
+        console.print(f"  [dim cyan][Autotask] base URL: {self.base}[/dim cyan]")
+
+    # ── zone detection ────────────────────────────────────────────────────────
+
+    def _detect_zone(self) -> str:
+        url = ZONE_DETECT_URL.format(email=self.user)
+        try:
+            r = requests.get(url, timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            zone_url = data.get("url", "").rstrip("/")
+            if not zone_url:
+                raise AutotaskError("Zone URL missing from response")
+            return zone_url + "/ATServicesRest/v1.0"
+        except Exception as e:
+            raise AutotaskError(f"Could not detect Autotask zone: {e}")
+
+    # ── HTTP helpers ──────────────────────────────────────────────────────────
+
+    def _headers(self) -> dict:
+        h = {
+            "UserName": self.user,
+            "Secret":   self.secret,
+            "Content-Type": "application/json",
+        }
+        if self.int_code:
+            h["ApiIntegrationCode"] = self.int_code
+        return h
+
+    def _get(self, path: str, params: dict = None) -> dict:
+        r = requests.get(f"{self.base}/{path}", headers=self._headers(),
+                         params=params, timeout=15)
+        if not r.ok:
+            raise AutotaskError(f"GET {path} → {r.status_code}: {r.text[:200]}")
+        return r.json()
+
+    def _post(self, path: str, body: dict) -> dict:
+        r = requests.post(f"{self.base}/{path}", headers=self._headers(),
+                          json=body, timeout=15)
+        if not r.ok:
+            raise AutotaskError(f"POST {path} → {r.status_code}: {r.text[:200]}")
+        return r.json()
+
+    def _patch(self, path: str, body: dict) -> dict:
+        r = requests.patch(f"{self.base}/{path}", headers=self._headers(),
+                           json=body, timeout=15)
+        if not r.ok:
+            raise AutotaskError(f"PATCH {path} → {r.status_code}: {r.text[:200]}")
+        return r.json()
+
+    # ── ticket queries ────────────────────────────────────────────────────────
+
+    def get_open_tickets(self, max_results: int = 20) -> list[dict]:
+        """Return open tickets. Filters by queue/resource if configured.
+        Returns minimal fields — full detail fetched per-ticket to avoid bulk PII load."""
+        filters = [
+            {"field": "status", "op": "noteq", "value": STATUS_COMPLETE},
+        ]
+        if AUTOTASK_QUEUE_ID:
+            filters.append({"field": "queueID", "op": "eq", "value": AUTOTASK_QUEUE_ID})
+        if AUTOTASK_RESOURCE_ID:
+            filters.append({"field": "assignedResourceID", "op": "eq",
+                            "value": AUTOTASK_RESOURCE_ID})
+
+        body = {
+            "filter": [{"op": "and", "items": filters}],
+            "MaxRecords": max_results,
+            "includeFields": ["id", "title", "status", "queueID",
+                              "companyID", "contactID", "ticketNumber",
+                              "createDate", "priority"],
+        }
+        try:
+            data = self._post("Tickets/query", body)
+            return data.get("items", [])
+        except AutotaskError as e:
+            console.print(f"  [red][Autotask] get_open_tickets: {e}[/red]")
+            return []
+
+    def get_ticket(self, ticket_id: int) -> dict | None:
+        """Fetch full ticket detail. NOT cached — processed in memory only."""
+        try:
+            data = self._get(f"Tickets/{ticket_id}")
+            return data.get("item")
+        except AutotaskError as e:
+            console.print(f"  [red][Autotask] get_ticket {ticket_id}: {e}[/red]")
+            return None
+
+    def get_ticket_description(self, ticket_id: int) -> str:
+        """Return the ticket description/body text only — no PII metadata."""
+        ticket = self.get_ticket(ticket_id)
+        if not ticket:
+            return ""
+        return ticket.get("description", "") or ticket.get("title", "")
+
+    def get_company_name(self, company_id: int) -> str:
+        """Look up company name by ID."""
+        try:
+            data = self._get(f"Companies/{company_id}")
+            return data.get("item", {}).get("companyName", f"Company {company_id}")
+        except AutotaskError:
+            return f"Company {company_id}"
+
+    # ── ticket actions ────────────────────────────────────────────────────────
+
+    def add_note(self, ticket_id: int, note_text: str,
+                 note_type: int = 1, publish: int = 2) -> bool:
+        """Add a note to a ticket.
+        note_type 1 = Task/Note. publish 2 = All users (1 = internal only).
+        """
+        body = {
+            "ticketID":   ticket_id,
+            "noteType":   note_type,
+            "publish":    publish,
+            "title":      "ARTY Update",
+            "description": note_text,
+            "createDateTime": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            self._post("TicketNotes", body)
+            console.print(f"  [green][Autotask] Note added to ticket {ticket_id}[/green]")
+            return True
+        except AutotaskError as e:
+            console.print(f"  [red][Autotask] add_note failed: {e}[/red]")
+            return False
+
+    def update_status(self, ticket_id: int, status_id: int) -> bool:
+        """Update ticket status by ID."""
+        try:
+            self._patch(f"Tickets/{ticket_id}", {"id": ticket_id, "status": status_id})
+            console.print(f"  [green][Autotask] Ticket {ticket_id} status → {status_id}[/green]")
+            return True
+        except AutotaskError as e:
+            console.print(f"  [red][Autotask] update_status failed: {e}[/red]")
+            return False
+
+    def close_ticket(self, ticket_id: int, closing_note: str = "") -> bool:
+        """Add closing note and mark ticket complete."""
+        if closing_note:
+            self.add_note(ticket_id, closing_note, publish=2)
+        return self.update_status(ticket_id, STATUS_COMPLETE)
+
+    def set_in_progress(self, ticket_id: int) -> bool:
+        return self.update_status(ticket_id, STATUS_IN_PROGRESS)
+
+    # ── ticket summary (safe for Claude — no raw PII) ─────────────────────────
+
+    def summarise_for_arty(self, ticket: dict) -> str:
+        """Build a concise summary string for ARTY to reason about.
+        Company name is included (needed to find the right M365 tenant) but
+        contact personal details are not passed to Claude."""
+        company_name = self.get_company_name(ticket.get("companyID", 0))
+        return (
+            f"Ticket #{ticket.get('ticketNumber', ticket.get('id'))}\n"
+            f"Company: {company_name}\n"
+            f"Title: {ticket.get('title', '')}\n"
+            f"Description: {ticket.get('description', '')}\n"
+            f"Priority: {ticket.get('priority', 'Normal')}"
+        )
+
+    # ── polling ────────────────────────────────────────────────────────────────
+
+    def poll_for_new_ticket(self, last_seen_ids: set, max_results: int = 10) -> dict | None:
+        """Return the first ticket not in last_seen_ids, or None.
+        Call on a timer — ARTY checks periodically and announces when one arrives."""
+        tickets = self.get_open_tickets(max_results)
+        for t in tickets:
+            if t["id"] not in last_seen_ids:
+                return t
+        return None

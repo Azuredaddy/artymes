@@ -25,3 +25,9 @@ CONVERSATION_WINDOW = 20
 UNCERTAINTY_THRESHOLD = 0.4
 
 GITHUB_VERSION_URL = "https://raw.githubusercontent.com/Azuredaddy/artymes/main/version.txt"
+
+# Autotask PSA
+AUTOTASK_API_USER        = os.getenv("AUTOTASK_API_USER", "").strip()
+AUTOTASK_API_SECRET      = os.getenv("AUTOTASK_API_SECRET", "").strip()
+AUTOTASK_INTEGRATION_CODE = os.getenv("AUTOTASK_INTEGRATION_CODE", "").strip()
+AUTOTASK_ZONE_URL        = os.getenv("AUTOTASK_ZONE_URL", "").strip()  # override if zone known

@@ -35,6 +35,8 @@ def _is_computer_action(text: str) -> bool:
 COMMANDS = {
     "/help":    "Show this help",
     "/tasks":   "Show open tasks ARTY has flagged",
+    "/tickets": "Check Autotask for open tickets",
+    "/ticket":  "Work on a specific ticket: /ticket <ticket-id>",
     "/train":   "Enter training mode — teach ARTY a task",
     "/watch":   "Observation mode — ARTY watches & logs to Notepad: /watch [minutes]",
     "/recall":  "List all procedures ARTY has learned",
@@ -287,6 +289,98 @@ def training_mode(trainer, brain, voice, use_mic, ears):
             break
 
 
+def _show_tickets(ticket_brain, voice):
+    """Fetch and display open Autotask tickets."""
+    console.print("  [dim]Checking Autotask...[/dim]")
+    try:
+        at      = ticket_brain._get_autotask()
+        tickets = at.get_open_tickets(max_results=15)
+    except Exception as e:
+        msg = f"Couldn't reach Autotask: {e}"
+        console.print(f"  [red]{msg}[/red]")
+        voice.speak("I couldn't connect to Autotask — check the API credentials.")
+        return
+
+    if not tickets:
+        msg = "No open tickets in the queue right now."
+        console.print(f"  [green]ARTY:[/green] {msg}")
+        voice.speak(msg)
+        return
+
+    rows = []
+    for t in tickets:
+        company = at.get_company_name(t.get("companyID", 0))
+        rows.append(
+            f"  [cyan]#{t.get('ticketNumber', t['id'])}[/cyan]  "
+            f"[white]{t.get('title','')[:55]}[/white]  "
+            f"[dim]({company})[/dim]"
+        )
+    console.print(Panel(
+        "\n".join(rows),
+        title=f"[bold yellow]Open Tickets ({len(tickets)})[/bold yellow]",
+        border_style="yellow",
+    ))
+    voice.speak(f"I can see {len(tickets)} open ticket{'s' if len(tickets) != 1 else ''}. "
+                "Use /ticket and the ID to work on one.")
+
+
+def _work_ticket_by_id(ticket_id: int, ticket_brain, voice, use_mic, ears):
+    """Load a ticket by ID, classify it, and walk the user through it."""
+    console.print(f"  [dim]Loading ticket {ticket_id}...[/dim]")
+    try:
+        at     = ticket_brain._get_autotask()
+        ticket = at.get_ticket(ticket_id)
+    except Exception as e:
+        console.print(f"  [red]Couldn't load ticket {ticket_id}: {e}[/red]")
+        voice.speak(f"I couldn't load ticket {ticket_id}.")
+        return
+
+    if not ticket:
+        voice.speak(f"Ticket {ticket_id} not found.")
+        return
+
+    plan = ticket_brain.classify_and_plan(ticket)
+    ticket_brain.announce_ticket(plan)
+
+    console.print("\n  [dim cyan]  Ready to start? (yes / no)[/dim cyan]")
+    reply = _get_input(use_mic, ears)
+    if not reply or not any(w in reply.lower() for w in
+                            ["yes", "yeah", "yep", "go", "sure", "ok", "start", "ready"]):
+        voice.speak("No problem — ticket is still open whenever you want to come back to it.")
+        return
+
+    ticket_brain.start_ticket(plan)
+
+    # Step-by-step walkthrough — ARTY reads each step aloud and waits for confirmation
+    steps = plan["procedure"]["steps"]
+    for i, step in enumerate(steps, 1):
+        console.print(f"\n  [bold yellow]Step {i}/{len(steps)}:[/bold yellow] {step}")
+        voice.speak(f"Step {i}: {step}")
+
+        console.print("  [dim cyan]  Done with this step? (yes / skip / stop)[/dim cyan]")
+        reply = _get_input(use_mic, ears)
+        if not reply:
+            continue
+        lower = reply.lower()
+        if any(w in lower for w in ["stop", "cancel", "abort", "quit"]):
+            voice.speak("Stopping. The ticket is still marked in progress.")
+            return
+        if any(w in lower for w in ["skip"]):
+            voice.speak("Skipping that step.")
+            continue
+        # User said done / yes / etc — move to next step
+
+    # All steps done — ask for closing note
+    console.print("\n  [bold green]All steps complete.[/bold green]")
+    voice.speak("All done. What should I put in the closing note?")
+    console.print("  [dim cyan]  Closing note (or press Enter for default):[/dim cyan]")
+    closing = _get_input(use_mic, ears)
+    if not closing:
+        closing = f"Resolved by ARTY — {plan['procedure']['name']} completed."
+
+    ticket_brain.close_ticket(plan, closing)
+
+
 def run():
     from config import ARTY_VERSION, GITHUB_VERSION_URL
     print_banner(ARTY_VERSION)
@@ -324,6 +418,10 @@ def run():
     eyes = ArtyEyes()
     hands = ArtyHands()
     trainer = ArtyTrainer(eyes, hands, voice, brain.memory)
+
+    # Ticket brain — lazy-loads Autotask client on first use
+    from brain.ticket_brain import ArtyTicketBrain
+    ticket_brain = ArtyTicketBrain(voice=voice)
 
     session_id = str(uuid.uuid4())
     brain.set_session(session_id)
@@ -384,6 +482,14 @@ def run():
                         success = trainer.run_procedure(proc_name)
                         if not success:
                             voice.speak(f"I don't have a procedure called {proc_name} — or it didn't work.")
+                elif cmd == "/tickets":
+                    _show_tickets(ticket_brain, voice)
+                elif cmd.startswith("/ticket"):
+                    arg = cmd[7:].strip()
+                    if arg.isdigit():
+                        _work_ticket_by_id(int(arg), ticket_brain, voice, use_mic, ears)
+                    else:
+                        console.print("  [red]Usage: /ticket <ticket-id>[/red]")
                 elif cmd == "/version":
                     show_version(ARTY_VERSION, GITHUB_VERSION_URL, voice)
                 elif cmd.startswith("/test"):
