@@ -7,18 +7,29 @@ from elevenlabs import ElevenLabs, VoiceSettings
 from config import ELEVENLABS_API_KEY, ARTY_VOICE_ID
 
 
-def _pyttsx3_speak(text: str):
+def _local_speak(text: str):
+    """Windows SAPI via PowerShell — reliable fallback when ElevenLabs is unavailable."""
     try:
-        import pyttsx3
-        engine = pyttsx3.init()
-        engine.setProperty("rate", 165)
-        engine.setProperty("volume", 1.0)  # max volume
-        engine.say(text)
-        engine.runAndWait()
-        engine.stop()
-    except Exception as e:
-        print(f"  [Local TTS error]: {e}")
-        print(f"  [ARTY would say]: {text}")
+        import subprocess
+        safe = text.replace("'", "''").replace('"', '`"')
+        subprocess.run(
+            ["powershell", "-Command",
+             f"Add-Type -AssemblyName System.Speech; "
+             f"$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+             f"$s.Volume = 100; $s.Rate = 1; $s.Speak('{safe}')"],
+            check=False, capture_output=True
+        )
+    except Exception:
+        try:
+            import pyttsx3
+            engine = pyttsx3.init()
+            engine.setProperty("rate", 165)
+            engine.setProperty("volume", 1.0)
+            engine.say(text)
+            engine.runAndWait()
+            engine.stop()
+        except Exception as e:
+            print(f"  [ARTY would say]: {text}")
 
 
 class ArtyVoice:
@@ -40,7 +51,7 @@ class ArtyVoice:
         if not text.strip():
             return
         if not self._use_elevenlabs:
-            _pyttsx3_speak(text)
+            _local_speak(text)
             return
         try:
             # PCM output: raw 16-bit samples at 24kHz — no MP3 decoding, plays on first chunk
@@ -57,7 +68,7 @@ class ArtyVoice:
                         out.write(np.frombuffer(chunk, dtype=np.int16).reshape(-1, 1))
         except Exception as e:
             print(f"  [ElevenLabs error — falling back to local voice]: {e}")
-            _pyttsx3_speak(text)
+            _local_speak(text)
 
     def speak_async(self, text: str):
         import threading
