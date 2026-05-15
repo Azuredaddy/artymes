@@ -12,7 +12,11 @@ from rich.console import Console
 
 console = Console()
 
-ZONE_DETECT_URL = "https://webservices2.autotask.net/atservicesrest/v1.0/zoneInformation?user={email}"
+# Autotask tries multiple zone detection URLs — casing varies by environment
+ZONE_DETECT_URLS = [
+    "https://webservices2.autotask.net/ATServicesRest/v1.0/zoneInformation?user={email}",
+    "https://webservices2.autotask.net/atservicesrest/v1.0/zoneInformation?user={email}",
+]
 
 # Autotask ticket status IDs (standard defaults — may differ per account)
 STATUS_NEW        = 1
@@ -39,7 +43,11 @@ class ArtyAutotask:
         self.int_code = AUTOTASK_INTEGRATION_CODE
 
         if AUTOTASK_ZONE_URL:
-            self.base = AUTOTASK_ZONE_URL.rstrip("/") + "/ATServicesRest/v1.0"
+            # If user gave a full API base URL use it directly, otherwise append the path
+            if "ATServicesRest" in AUTOTASK_ZONE_URL:
+                self.base = AUTOTASK_ZONE_URL.rstrip("/")
+            else:
+                self.base = AUTOTASK_ZONE_URL.rstrip("/") + "/ATServicesRest/v1.0"
         else:
             self.base = self._detect_zone()
 
@@ -48,17 +56,29 @@ class ArtyAutotask:
     # ── zone detection ────────────────────────────────────────────────────────
 
     def _detect_zone(self) -> str:
-        url = ZONE_DETECT_URL.format(email=self.user)
-        try:
-            r = requests.get(url, timeout=10)
-            r.raise_for_status()
-            data = r.json()
-            zone_url = data.get("url", "").rstrip("/")
-            if not zone_url:
-                raise AutotaskError("Zone URL missing from response")
-            return zone_url + "/ATServicesRest/v1.0"
-        except Exception as e:
-            raise AutotaskError(f"Could not detect Autotask zone: {e}")
+        last_err = ""
+        for detect_url in ZONE_DETECT_URLS:
+            url = detect_url.format(email=requests.utils.quote(self.user, safe="@."))
+            try:
+                r = requests.get(url, timeout=10)
+                if not r.ok:
+                    last_err = f"HTTP {r.status_code} from {url}"
+                    continue
+                data = r.json()
+                zone_url = data.get("url", "").rstrip("/")
+                if not zone_url:
+                    last_err = f"No 'url' field in zone response: {data}"
+                    continue
+                full_base = zone_url + "/ATServicesRest/v1.0"
+                console.print(f"  [dim cyan][Autotask] zone detected: {full_base}[/dim cyan]")
+                return full_base
+            except Exception as e:
+                last_err = str(e)
+                continue
+        raise AutotaskError(
+            f"Could not detect Autotask zone. Last error: {last_err}\n"
+            f"Add AUTOTASK_ZONE_URL to your .env (e.g. https://webservices6.autotask.net)"
+        )
 
     # ── HTTP helpers ──────────────────────────────────────────────────────────
 
@@ -72,25 +92,28 @@ class ArtyAutotask:
             h["ApiIntegrationCode"] = self.int_code
         return h
 
+    def _url(self, path: str) -> str:
+        return f"{self.base}/{path}"
+
     def _get(self, path: str, params: dict = None) -> dict:
-        r = requests.get(f"{self.base}/{path}", headers=self._headers(),
-                         params=params, timeout=15)
+        full = self._url(path)
+        r = requests.get(full, headers=self._headers(), params=params, timeout=15)
         if not r.ok:
-            raise AutotaskError(f"GET {path} → {r.status_code}: {r.text[:200]}")
+            raise AutotaskError(f"GET {full} → {r.status_code}: {r.text[:300]}")
         return r.json()
 
     def _post(self, path: str, body: dict) -> dict:
-        r = requests.post(f"{self.base}/{path}", headers=self._headers(),
-                          json=body, timeout=15)
+        full = self._url(path)
+        r = requests.post(full, headers=self._headers(), json=body, timeout=15)
         if not r.ok:
-            raise AutotaskError(f"POST {path} → {r.status_code}: {r.text[:200]}")
+            raise AutotaskError(f"POST {full} → {r.status_code}: {r.text[:300]}")
         return r.json()
 
     def _patch(self, path: str, body: dict) -> dict:
-        r = requests.patch(f"{self.base}/{path}", headers=self._headers(),
-                           json=body, timeout=15)
+        full = self._url(path)
+        r = requests.patch(full, headers=self._headers(), json=body, timeout=15)
         if not r.ok:
-            raise AutotaskError(f"PATCH {path} → {r.status_code}: {r.text[:200]}")
+            raise AutotaskError(f"PATCH {full} → {r.status_code}: {r.text[:300]}")
         return r.json()
 
     # ── ticket queries ────────────────────────────────────────────────────────
