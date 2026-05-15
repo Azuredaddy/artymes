@@ -28,56 +28,79 @@ _ACTION_RE = re.compile(
     re.IGNORECASE
 )
 
-# Words that are never a company name — prevent regex eating filler words
+# Stopwords that are never a company name
 _NOT_COMPANY = {
     "me", "my", "the", "a", "an", "us", "our", "you", "your", "it", "its",
     "autotask", "ticket", "tickets", "this", "that", "them", "their",
-    "one", "any", "all", "some", "there", "here", "now", "please",
+    "one", "any", "all", "some", "there", "here", "now", "please", "i",
 }
-
-# Matches "company called X", "company X", "for/from X" (where X is not a stopword)
-_COMPANY_NAME_RE = re.compile(
-    r'\b(?:company\s+(?:called\s+|named\s+)?|client\s+(?:called\s+|named\s+)?|account\s+(?:called\s+)?)'
-    r'([A-Za-z][A-Za-z0-9\s&\'-]{1,39})',
-    re.IGNORECASE
-)
-_TICKET_FOR_RE = re.compile(
-    r'\b(?:tickets?|issues?|anything|anything open|open\s+tickets?)'
-    r'.{0,25}\b(?:for|from|with|under|about)\s+'
-    r'([A-Za-z][A-Za-z0-9\s&\'-]{1,39})',
-    re.IGNORECASE
-)
-_TICKET_LIST_RE = re.compile(
-    r'\b(?:check\s+(?:autotask|tickets?)|any\s+(?:open\s+)?tickets?'
-    r'|show\s+(?:me\s+)?(?:all\s+)?tickets?|list\s+(?:all\s+)?(?:tickets?|companies)'
-    r'|open\s+tickets?|show\s+companies|list\s+companies|show\s+all\s+companies)\b',
-    re.IGNORECASE
-)
-_COMPANY_LIST_RE = re.compile(
-    r'\b(?:list|show|get)\s+(?:me\s+)?(?:all\s+)?companies\b',
-    re.IGNORECASE
-)
 
 def _is_computer_action(text: str) -> bool:
     return bool(_ACTION_RE.search(text))
 
-def _extract_ticket_company(text: str) -> str | None:
-    """Return a company name from the query if one is clearly mentioned."""
-    for pattern in (_COMPANY_NAME_RE, _TICKET_FOR_RE):
-        m = pattern.search(text)
-        if m:
-            name = m.group(1).strip().rstrip(".,?!")
-            # Reject if first word is a stopword
-            first = name.split()[0].lower() if name else ""
-            if first not in _NOT_COMPANY and len(name) >= 2:
-                return name
+def _autotask_intent(text: str) -> tuple[str, str]:
+    """Classify Autotask-related intent.
+    Returns (intent, value) where intent is one of:
+      'list_companies', 'list_tickets', 'company_tickets', 'none'
+    and value is the company name for 'company_tickets', else ''.
+    Uses simple keyword matching — robust to natural language variation.
+    """
+    lower = text.lower()
+    words = set(lower.split())
+
+    has_autotask  = "autotask" in lower
+    has_companies = "companies" in lower or "company" in lower or "clients" in lower or "client" in lower
+    has_tickets   = "ticket" in lower or "tickets" in lower or "issues" in lower
+    has_list      = any(w in lower for w in ("list", "show", "give", "get", "pull", "check", "find", "see", "view", "all"))
+
+    # Company list
+    if has_companies and (has_list or has_autotask):
+        return "list_companies", ""
+
+    # Tickets for a specific company — look for "company called X", "for X", "from X", "under X"
+    company_name = _extract_company_name(text)
+    if company_name and (has_tickets or has_autotask):
+        return "company_tickets", company_name
+
+    # General ticket list
+    if has_tickets and (has_list or has_autotask):
+        return "list_tickets", ""
+
+    # Catch bare "autotask" queries that don't fit above
+    if has_autotask and has_list:
+        return "list_tickets", ""
+
+    return "none", ""
+
+def _extract_company_name(text: str) -> str | None:
+    """Pull a company name from text. Looks for explicit markers like
+    'company called X', 'for X', 'from X'. Returns None if nothing clear found."""
+    lower = text.lower()
+
+    # Explicit: "company called/named X" or "client called/named X"
+    m = re.search(
+        r'\b(?:company|client|account)\s+(?:called\s+|named\s+|is\s+)?'
+        r'([A-Za-z][A-Za-z0-9\s&\'-]{1,39})',
+        text, re.IGNORECASE
+    )
+    if m:
+        name = m.group(1).strip().rstrip(".,?!")
+        if name.split()[0].lower() not in _NOT_COMPANY:
+            return name
+
+    # "tickets for/from/with/under X" or "anything for X"
+    m = re.search(
+        r'\b(?:tickets?|issues?|anything)\b.{0,25}'
+        r'\b(?:for|from|with|under|about)\s+'
+        r'([A-Za-z][A-Za-z0-9\s&\'-]{1,39})',
+        text, re.IGNORECASE
+    )
+    if m:
+        name = m.group(1).strip().rstrip(".,?!")
+        if name.split()[0].lower() not in _NOT_COMPANY:
+            return name
+
     return None
-
-def _is_ticket_list_request(text: str) -> bool:
-    return bool(_TICKET_LIST_RE.search(text))
-
-def _is_company_list_request(text: str) -> bool:
-    return bool(_COMPANY_LIST_RE.search(text))
 
 COMMANDS = {
     "/help":    "Show this help",
@@ -668,15 +691,15 @@ def run(start_text_mode: bool = False):
                 console.print(f"  [dim cyan][ROUTE] checking: '{user_input[:60]}'[/dim cyan]")
                 console.print(f"  [dim cyan][ROUTE] is_action={_is_computer_action(user_input)}  last_goal={bool(last_action_goal)}[/dim cyan]")
 
-            # ── ticket / Autotask intents (checked before generic computer-action) ─
-            company = _extract_ticket_company(user_input)
-            if company:
-                _search_tickets_for_company(company, ticket_brain, voice)
-                continue
-            if _is_company_list_request(user_input):
+            # ── Autotask intents (checked before generic computer-action) ─────────
+            _at_intent, _at_value = _autotask_intent(user_input)
+            if _at_intent == "list_companies":
                 _list_companies(ticket_brain, voice)
                 continue
-            if _is_ticket_list_request(user_input):
+            elif _at_intent == "company_tickets":
+                _search_tickets_for_company(_at_value, ticket_brain, voice)
+                continue
+            elif _at_intent == "list_tickets":
                 _show_tickets(ticket_brain, voice)
                 continue
 
