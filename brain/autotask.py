@@ -95,31 +95,48 @@ class ArtyAutotask:
         }
 
     def test_connection(self) -> str:
-        """Quick connectivity + auth check. Returns a status string."""
+        """Quick connectivity + auth check across multiple endpoints."""
         if not self.user:
             return "AUTOTASK_API_USER is not set in .env"
         if not self.secret:
             return "AUTOTASK_API_SECRET is not set in .env"
         if not self.int_code:
             return "AUTOTASK_INTEGRATION_CODE is not set in .env"
+
+        results = []
+        h = self._headers()
+
+        # Test 1: unauthenticated zone ping
         try:
-            # Tickets/query with limit 1 — minimal request
-            body = {"filter": [{"op": "and", "items": [
-                {"field": "status", "op": "noteq", "value": 5}
-            ]}]}
-            r = requests.post(
-                self._url("Tickets/query"),
-                headers=self._headers(),
-                json=body,
-                params={"MaxRecords": 1},
-                timeout=10,
+            r = requests.get(
+                f"https://webservices2.autotask.net/ATServicesRest/v1.0/zoneInformation"
+                f"?user={requests.utils.quote(self.user, safe='@.')}",
+                timeout=8,
             )
-            if r.ok:
-                count = len(r.json().get("items", []))
-                return f"OK — connected to {self.base} ({count} ticket(s) returned)"
-            return f"HTTP {r.status_code}: {r.text[:200]}"
+            results.append(f"Zone ping: {'OK' if r.ok else f'HTTP {r.status_code}'}")
         except Exception as e:
-            return f"Connection error: {e}"
+            results.append(f"Zone ping: ERROR {e}")
+
+        # Test 2: authenticated GET on a simple entity
+        for entity in ("Companies", "Contacts", "Tickets"):
+            try:
+                r = requests.post(
+                    self._url(f"{entity}/query"),
+                    headers=h,
+                    json={"filter": [{"op": "and", "items": [
+                        {"field": "id", "op": "gt", "value": 0}
+                    ]}]},
+                    params={"MaxRecords": 1},
+                    timeout=8,
+                )
+                if r.ok:
+                    results.append(f"{entity}: OK ({len(r.json().get('items', []))} item(s))")
+                else:
+                    results.append(f"{entity}: HTTP {r.status_code}")
+            except Exception as e:
+                results.append(f"{entity}: ERROR {e}")
+
+        return " | ".join(results)
 
     def _url(self, path: str) -> str:
         return f"{self.base}/{path}"
