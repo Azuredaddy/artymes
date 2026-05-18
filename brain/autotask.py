@@ -91,6 +91,7 @@ class ArtyAutotask:
             "Secret":             self.secret,
             "ApiIntegrationCode": self.int_code,
             "Content-Type":       "application/json",
+            "User-Agent":         "Artymes/1.7 (Python; Autotask REST Client)",
         }
 
     def test_connection(self) -> str:
