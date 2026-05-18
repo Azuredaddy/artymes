@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 
-ARTY_VERSION = "1.7.2"
+ARTY_VERSION = "1.7.3"
 VERSION = ARTY_VERSION  # alias used by check_setup.py
 
 # Always load .env from the same folder as this file, regardless of working directory

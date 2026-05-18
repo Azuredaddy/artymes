@@ -564,95 +564,30 @@ def _search_tickets_for_company(company_name: str, ticket_brain, voice):
 
 
 def _show_tickets(ticket_brain, voice):
-    """Fetch and display open Autotask tickets."""
-    console.print("  [dim]Checking Autotask...[/dim]")
-    try:
-        at      = ticket_brain._get_autotask()
-        tickets = at.get_open_tickets(max_results=15)
-    except Exception as e:
-        msg = f"Couldn't reach Autotask: {e}"
-        console.print(f"  [red]{msg}[/red]")
-        voice.speak("I couldn't connect to Autotask — check the API credentials.")
-        return
-
-    if not tickets:
-        msg = "No open tickets in the queue right now."
-        console.print(f"  [green]ARTY:[/green] {msg}")
-        voice.speak(msg)
-        return
-
-    rows = []
-    for t in tickets:
-        company = at.get_company_name(t.get("companyID", 0))
-        rows.append(
-            f"  [cyan]#{t.get('ticketNumber', t['id'])}[/cyan]  "
-            f"[white]{t.get('title','')[:55]}[/white]  "
-            f"[dim]({company})[/dim]"
-        )
-    console.print(Panel(
-        "\n".join(rows),
-        title=f"[bold yellow]Open Tickets ({len(tickets)})[/bold yellow]",
-        border_style="yellow",
-    ))
-    voice.speak(f"I can see {len(tickets)} open ticket{'s' if len(tickets) != 1 else ''}. "
-                "Use /ticket and the ID to work on one.")
+    """Open the interactive ticket terminal."""
+    from brain.ticket_terminal import TicketTerminal
+    TicketTerminal(voice=voice).run()
 
 
 def _work_ticket_by_id(ticket_id: int, ticket_brain, voice, use_mic, ears):
-    """Load a ticket by ID, classify it, and walk the user through it."""
+    """Open a specific ticket directly in the terminal."""
+    from brain.ticket_terminal import TicketTerminal
+    tt = TicketTerminal(voice=voice)
     console.print(f"  [dim]Loading ticket {ticket_id}...[/dim]")
     try:
-        at     = ticket_brain._get_autotask()
-        ticket = at.get_ticket(ticket_id)
+        ticket = tt._at_client().get_ticket(ticket_id)
     except Exception as e:
         console.print(f"  [red]Couldn't load ticket {ticket_id}: {e}[/red]")
-        voice.speak(f"I couldn't load ticket {ticket_id}.")
         return
-
     if not ticket:
-        voice.speak(f"Ticket {ticket_id} not found.")
+        console.print(f"  [red]Ticket {ticket_id} not found.[/red]")
         return
-
-    plan = ticket_brain.classify_and_plan(ticket)
-    ticket_brain.announce_ticket(plan)
-
-    console.print("\n  [dim cyan]  Ready to start? (yes / no)[/dim cyan]")
-    reply = _get_input(use_mic, ears)
-    if not reply or not any(w in reply.lower() for w in
-                            ["yes", "yeah", "yep", "go", "sure", "ok", "start", "ready"]):
-        voice.speak("No problem — ticket is still open whenever you want to come back to it.")
-        return
-
-    ticket_brain.start_ticket(plan)
-
-    # Step-by-step walkthrough — ARTY reads each step aloud and waits for confirmation
-    steps = plan["procedure"]["steps"]
-    for i, step in enumerate(steps, 1):
-        console.print(f"\n  [bold yellow]Step {i}/{len(steps)}:[/bold yellow] {step}")
-        voice.speak(f"Step {i}: {step}")
-
-        console.print("  [dim cyan]  Done with this step? (yes / skip / stop)[/dim cyan]")
-        reply = _get_input(use_mic, ears)
-        if not reply:
-            continue
-        lower = reply.lower()
-        if any(w in lower for w in ["stop", "cancel", "abort", "quit"]):
-            voice.speak("Stopping. The ticket is still marked in progress.")
-            return
-        if any(w in lower for w in ["skip"]):
-            voice.speak("Skipping that step.")
-            continue
-        # User said done / yes / etc — move to next step
-
-    # All steps done — ask for closing note
-    console.print("\n  [bold green]All steps complete.[/bold green]")
-    voice.speak("All done. What should I put in the closing note?")
-    console.print("  [dim cyan]  Closing note (or press Enter for default):[/dim cyan]")
-    closing = _get_input(use_mic, ears)
-    if not closing:
-        closing = f"Resolved by ARTY — {plan['procedure']['name']} completed."
-
-    ticket_brain.close_ticket(plan, closing)
+    from brain.ticket_terminal import _classify
+    company = tt._at_client().get_company_name(ticket.get("companyID", 0))
+    text = f"{ticket.get('title','')} {ticket.get('description','')}"
+    ticket["_company"] = company
+    ticket["_type"] = _classify(text)
+    tt._open_ticket(ticket)
 
 
 def _email_intent(text: str) -> str | None:
