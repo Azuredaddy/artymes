@@ -21,8 +21,15 @@ class ArtyEyes:
         idx = min(index, len(monitors) - 1)
         return self._grab(monitors[idx])
 
+    def _primary_monitor(self) -> dict:
+        """Return the Windows primary monitor (left=0, top=0). Falls back to monitors[1]."""
+        for m in self.sct.monitors[1:]:
+            if m["left"] == 0 and m["top"] == 0:
+                return m
+        return self.sct.monitors[1]
+
     def capture_primary(self) -> str:
-        return self.capture_monitor(1)
+        return self._grab(self._primary_monitor())
 
     def _grab(self, monitor) -> str:
         b64, _, _ = self._grab_with_scale(monitor)
@@ -72,9 +79,8 @@ class ArtyEyes:
                             return b64, m['left'], m['top'], xs, ys
             except Exception:
                 pass
-        # Fall back to primary monitor — the combined-all-monitors image compresses
-        # 3×1920px into 1280px, making Claude's coordinate estimates 4.5× less accurate.
-        primary = self.sct.monitors[1] if len(self.sct.monitors) > 1 else self.sct.monitors[0]
+        # Fall back to actual Windows primary monitor (left=0, top=0)
+        primary = self._primary_monitor()
         b64, xs, ys = self._grab_with_scale(primary)
         return b64, primary["left"], primary["top"], xs, ys
 
@@ -84,7 +90,7 @@ class ArtyEyes:
         img_w/img_h  — exact JPEG dimensions; pass to Claude as display_width_px/display_height_px.
         x_scale/y_scale — multiply Claude's returned coordinates by these to get pyautogui
                           logical-pixel coordinates, correcting for DPI scaling and resize."""
-        monitor = self.sct.monitors[1] if len(self.sct.monitors) > 1 else self.sct.monitors[0]
+        monitor = self._primary_monitor()
         shot = self.sct.grab(monitor)
         img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
 

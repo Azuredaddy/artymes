@@ -913,11 +913,10 @@ def run(start_text_mode: bool = False):
                 continue
 
             if _email_draft is not None:
-                # We're mid-composition — parse subject/body from this message
                 txt = user_input.strip()
                 lower_txt = txt.lower()
 
-                # Detect "cancel" while composing
+                # Detect cancel
                 if any(w in lower_txt for w in ("cancel", "forget it", "never mind", "stop")):
                     _email_draft = None
                     msg = "Email cancelled — no problem."
@@ -925,7 +924,27 @@ def run(start_text_mode: bool = False):
                     voice.speak(msg)
                     continue
 
-                # Extract subject/body from "subject is X and body/email is Y"
+                # Detect "make it up" / "you decide" / "test" — generate via Claude
+                _make_up = any(p in lower_txt for p in (
+                    "make it up", "make one up", "you decide", "you choose",
+                    "whatever", "anything", "just test", "test email",
+                    "make something up", "surprise me", "up to you",
+                    "use your imagination", "just make",
+                ))
+
+                def _generate_field(field: str, recipient: str) -> str:
+                    try:
+                        resp = brain.client.messages.create(
+                            model=brain.model, max_tokens=60,
+                            messages=[{"role": "user", "content":
+                                f"Write a short realistic email {field} for a test email to {recipient}. "
+                                f"One line only, no quotes, no explanation."}],
+                        )
+                        return resp.content[0].text.strip().strip('"\'')
+                    except Exception:
+                        return f"Test {field} for {recipient}"
+
+                # Extract explicit subject/body markers
                 subj_m = re.search(r'\bsubject\s+(?:is\s+|line\s+is\s+)?["\']?(.+?)(?:\band\b|body|email is|message is|$)', txt, re.IGNORECASE)
                 body_m = re.search(r'\b(?:body|email|message|content)\s+(?:is\s+|says?\s+)?["\']?(.+)', txt, re.IGNORECASE)
 
@@ -934,47 +953,68 @@ def run(start_text_mode: bool = False):
                 if body_m:
                     _email_draft["body"] = body_m.group(1).strip().rstrip("\"'.,")
 
-                # If no explicit markers, fill whichever field is missing in order
-                if not subj_m and not body_m:
+                # "Make it up" — generate whichever fields are still missing
+                if _make_up:
+                    if _email_draft["subject"] is None:
+                        _email_draft["subject"] = _generate_field("subject", _email_draft["to"])
+                    if _email_draft["body"] is None:
+                        _email_draft["body"] = _generate_field("body", _email_draft["to"])
+                elif not subj_m and not body_m:
+                    # Plain text — fill missing fields in order
                     if _email_draft["subject"] is None:
                         _email_draft["subject"] = txt
                     elif _email_draft["body"] is None:
                         _email_draft["body"] = txt
 
-                # Check what's still missing
+                # Still missing fields — ask
                 if _email_draft["subject"] is None:
-                    msg = "Got it — what should the subject be?"
+                    msg = "Got it — what should the subject be? Or say 'make it up' and I'll pick one."
                     console.print(f"  [green]ARTY:[/green] {msg}")
                     voice.speak(msg)
                     continue
                 if _email_draft["body"] is None:
-                    msg = f"Subject is '{_email_draft['subject']}'. What should the email say?"
+                    msg = f"Subject is '{_email_draft['subject']}'. What should the email say? Or say 'make it up'."
                     console.print(f"  [green]ARTY:[/green] {msg}")
                     voice.speak(msg)
                     continue
 
-                # We have everything — open the draft in Outlook for review
-                console.print(f"  [dim]Opening Outlook draft via COM...[/dim]")
-                console.print(f"  [dim]  To: {_email_draft['to']}  Subject: {_email_draft['subject']}[/dim]")
+                # Try Outlook COM first, fall back to keyboard control
+                console.print(f"  [dim]Opening Outlook draft — To: {_email_draft['to']}  Subject: {_email_draft['subject']}[/dim]")
+                com_ok = False
                 try:
                     ol = _get_outlook()
-                    ok = ol.send_email(
+                    com_ok = ol.send_email(
                         to=_email_draft["to"],
                         subject=_email_draft["subject"],
                         body=_email_draft["body"],
-                        display_first=True,   # shows draft window — user hits Send
+                        display_first=True,
                     )
-                    if ok:
-                        msg = (f"Done — I've opened the email to {_email_draft['to']} with "
-                               f"subject '{_email_draft['subject']}'. "
-                               f"Have a look and hit Send when you're happy.")
-                    else:
-                        msg = "Outlook COM didn't respond — is Outlook open and logged in?"
+                except Exception as e:
+                    console.print(f"  [yellow]Outlook COM unavailable ({type(e).__name__}) — using keyboard fallback[/yellow]")
+
+                if com_ok:
+                    msg = (f"Done — draft open in Outlook to {_email_draft['to']}, "
+                           f"subject '{_email_draft['subject']}'. Hit Send when ready.")
                     console.print(f"  [green]ARTY:[/green] {msg}")
                     voice.speak(msg)
-                except Exception as e:
-                    console.print(f"  [red]Outlook COM error: {e}[/red]")
-                    voice.speak("Hit an error opening Outlook — it might not be running.")
+                else:
+                    # Keyboard fallback: Ctrl+N in Outlook, tab through fields
+                    console.print("  [dim]Trying keyboard fallback...[/dim]")
+                    goal = (
+                        f"Open a new email in Outlook. "
+                        f"To: {_email_draft['to']}. "
+                        f"Subject: {_email_draft['subject']}. "
+                        f"Body: {_email_draft['body']}. "
+                        f"Leave it open as a draft for the user to review."
+                    )
+                    success = trainer.execute_task(goal)
+                    if success:
+                        msg = f"Done via keyboard — email draft is open in Outlook."
+                    else:
+                        msg = "Couldn't open Outlook. Is it running? Try opening it manually first."
+                    console.print(f"  [green]ARTY:[/green] {msg}")
+                    voice.speak(msg)
+
                 _email_draft = None
                 continue
 
