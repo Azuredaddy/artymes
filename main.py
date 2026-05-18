@@ -704,6 +704,7 @@ def run(start_text_mode: bool = False):
     from eyes.screen import ArtyEyes
     from hands.control import ArtyHands
     from brain.trainer import ArtyTrainer
+    from brain.computer_use import ArtyComputerUse
     from config import PUSH_TO_TALK, WAKE_WORD
     from brain.personality import ARTY_GREETING
 
@@ -713,6 +714,7 @@ def run(start_text_mode: bool = False):
     eyes = ArtyEyes()
     hands = ArtyHands()
     trainer = ArtyTrainer(eyes, hands, voice, brain.memory)
+    computer_use = ArtyComputerUse(eyes, voice)
 
     # Ticket brain — lazy-loads Autotask client on first use
     from brain.ticket_brain import ArtyTicketBrain
@@ -723,9 +725,9 @@ def run(start_text_mode: bool = False):
 
     from hands.control import _HAS_WINCTRL, _HAS_GW, _HAS_CLIPBOARD
     monitor_count = eyes.get_monitor_count()
-    win32_status = "[green]win32 ready[/green]" if _HAS_WINCTRL else "[yellow]win32 unavailable — pywin32 not installed[/yellow]"
+    win32_status = "[green]win32 ready[/green]" if _HAS_WINCTRL else "[yellow]win32 unavailable[/yellow]"
     debug_status = "  [magenta]DEBUG ON[/magenta]" if os.environ.get("ARTY_DEBUG") == "1" else ""
-    console.print(f"[bold green]ARTY is online.[/bold green]  Session: {session_id[:8]}  Monitors: {monitor_count}  {win32_status}{debug_status}\n")
+    console.print(f"[bold green]ARTY is online.[/bold green]  Session: {session_id[:8]}  Monitors: {monitor_count}  {win32_status}  [cyan]Computer Use: ON[/cyan]{debug_status}\n")
     console.print(f"  [green]ARTY:[/green] {ARTY_GREETING}")
     voice.speak(ARTY_GREETING)
 
@@ -1023,7 +1025,7 @@ def run(start_text_mode: bool = False):
                 ack = random.choice(["On it.", "Sure, give me a sec.", "Right, on it.", "Yep, doing that now."])
                 console.print(f"  [green]ARTY:[/green] {ack}")
                 voice.speak(ack)
-                success = trainer.execute_task(user_input)
+                success = computer_use.execute_task(user_input)
                 if not success:
                     offer = random.choice([
                         "I got stuck on that. Want to show me how and I'll learn it?",
@@ -1044,7 +1046,7 @@ def run(start_text_mode: bool = False):
                 ack = random.choice(["Right, trying again.", "On it, another go.", "Let me try that again."])
                 console.print(f"  [green]ARTY:[/green] {ack}")
                 voice.speak(ack)
-                success = trainer.execute_task(last_action_goal)
+                success = computer_use.execute_task(last_action_goal)
                 if success:
                     last_action_goal = None
                 else:
