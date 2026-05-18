@@ -1040,6 +1040,10 @@ def run(start_text_mode: bool = False):
                 console.print(f"  [green]ARTY:[/green] {ack}")
                 voice.speak(ack)
                 success = computer_use.execute_task(user_input)
+                # If Computer Use fails (e.g. model incompatibility), fall back to trainer
+                if not success:
+                    console.print("  [dim yellow]  Computer Use failed — trying vision loop fallback...[/dim yellow]")
+                    success = trainer.execute_task(user_input)
                 if not success:
                     offer = random.choice([
                         "I got stuck on that. Want to show me how and I'll learn it?",

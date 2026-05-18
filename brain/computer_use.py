@@ -165,7 +165,12 @@ class ArtyComputerUse:
                     betas=[CU_BETA],
                 )
             except anthropic.BadRequestError as e:
-                console.print(f"  [red]Computer Use API error: {e}[/red]")
+                err = str(e)
+                if "does not support tool types" in err or "computer_" in err:
+                    console.print(f"  [red]Model '{self.model}' does not support Computer Use.[/red]")
+                    console.print(f"  [yellow]  → Update COMPUTER_USE_MODEL in config.py to a supported model.[/yellow]")
+                else:
+                    console.print(f"  [red]Computer Use API error: {e}[/red]")
                 return False
             except Exception as e:
                 console.print(f"  [red]Computer Use error: {e}[/red]")
