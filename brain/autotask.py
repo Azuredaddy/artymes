@@ -209,6 +209,38 @@ class ArtyAutotask:
         tickets = self.get_tickets_for_company(best["id"])
         return tickets, best["companyName"]
 
+    def create_ticket(self, title: str, company_id: int,
+                      description: str = "", priority: int = 2,
+                      status: int = None, queue_id: int = None) -> dict | None:
+        """Create a new ticket. Returns the created ticket dict (with id + ticketNumber) or None.
+        priority: 1=Critical 2=High 3=Medium 4=Low
+        status defaults to STATUS_NEW (1).
+        queue_id: pass AUTOTASK_QUEUE_ID if set, otherwise omitted."""
+        from config import AUTOTASK_QUEUE_ID as _qid
+        body: dict = {
+            "title":     title,
+            "companyID": company_id,
+            "status":    status or STATUS_NEW,
+            "priority":  priority,
+        }
+        q = queue_id or _qid
+        if q:
+            body["queueID"] = int(q)
+        try:
+            data = self._post("Tickets", body)
+            ticket = data.get("item") or data.get("itemId")
+            if isinstance(ticket, dict):
+                console.print(f"  [green][Autotask] Ticket created: #{ticket.get('ticketNumber','?')} id={ticket.get('id')}[/green]")
+                return ticket
+            # Some API versions return just the id
+            if isinstance(ticket, int):
+                return {"id": ticket, "ticketNumber": str(ticket)}
+            console.print(f"  [yellow][Autotask] create_ticket unexpected response: {data}[/yellow]")
+            return None
+        except AutotaskError as e:
+            console.print(f"  [red][Autotask] create_ticket: {e}[/red]")
+            return None
+
     # ── ticket actions ────────────────────────────────────────────────────────
 
     def add_note(self, ticket_id: int, note_text: str,

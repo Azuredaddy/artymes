@@ -27,6 +27,13 @@ except Exception:
     _win_ctrl = None
     _HAS_WINCTRL = False
 
+try:
+    from hands.browser import BrowserHands, _HAS_PLAYWRIGHT
+    _browser = BrowserHands()
+except Exception:
+    _browser = None
+    _HAS_PLAYWRIGHT = False
+
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.15
 
@@ -148,6 +155,10 @@ class ArtyHands:
     def screen_size(self) -> tuple:
         return pyautogui.size()
 
+    @property
+    def browser(self):
+        return _browser
+
     def execute_action(self, action: dict) -> str:
         """Execute a structured action dict returned by Claude. Returns narration string."""
         atype = action.get("action", "")
@@ -239,5 +250,13 @@ class ArtyHands:
                     narration = f"No elements found in '{params.get('app')}'"
             else:
                 narration = "UI automation unavailable"
+
+        elif atype.startswith("browser_"):
+            if _browser is not None:
+                if not _browser._page or _browser._page.is_closed():
+                    _browser.start()
+                narration = _browser.execute_action(action)
+            else:
+                narration = "Browser control unavailable — run: pip install playwright && playwright install chromium"
 
         return narration

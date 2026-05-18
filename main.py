@@ -38,6 +38,16 @@ _NOT_COMPANY = {
 def _is_computer_action(text: str) -> bool:
     return bool(_ACTION_RE.search(text))
 
+def _ticket_create_intent(text: str) -> str | None:
+    """Detect 'create/make/open/add a ticket' intent. Returns company name or '' if no company."""
+    lower = text.lower()
+    if not re.search(r'\b(?:create|make|open|add|raise|log|new)\b.{0,20}\bticket\b', lower):
+        return None
+    # Try to extract company name
+    name = _extract_company_name(text)
+    return name or ""
+
+
 def _autotask_intent(text: str) -> tuple[str, str]:
     """Classify Autotask-related intent.
     Returns (intent, value) where intent is one of:
@@ -357,6 +367,69 @@ def training_mode(trainer, brain, voice, use_mic, ears):
         except KeyboardInterrupt:
             voice.speak("Training interrupted.")
             break
+
+
+def _handle_create_ticket(user_input: str, company_hint: str, ticket_brain, brain, voice):
+    """Resolve company, generate a subject if needed, and create an Autotask ticket."""
+    at = ticket_brain._get_autotask()
+    company_id = None
+    company_name = company_hint
+
+    if company_hint:
+        companies = at.search_companies_by_name(company_hint)
+        if not companies:
+            first = company_hint.split()[0]
+            if first != company_hint:
+                companies = at.search_companies_by_name(first)
+        if companies:
+            company_id = companies[0]["id"]
+            company_name = companies[0].get("companyName", company_hint)
+
+    if company_id is None:
+        msg = (
+            f"I couldn't find '{company_hint}' in Autotask — "
+            "do you want to try a different name?"
+        ) if company_hint else (
+            "Which company should I create the ticket for?"
+        )
+        console.print(f"  [green]ARTY:[/green] {msg}")
+        voice.speak(msg)
+        return
+
+    # Determine title
+    lower = user_input.lower()
+    auto_subject = any(w in lower for w in ("make up", "test", "random", "whatever", "you decide", "make one up"))
+    subj_m = re.search(r'\bsubject\s+(?:is\s+)?["\']?(.+?)(?:["\']|$)', user_input, re.IGNORECASE)
+
+    if subj_m:
+        title = subj_m.group(1).strip().rstrip('.,"\' ')
+    elif auto_subject:
+        try:
+            resp = brain.client.messages.create(
+                model=brain.model,
+                max_tokens=40,
+                messages=[{
+                    "role": "user",
+                    "content": f"Generate a short realistic IT support ticket subject line for {company_name}. One line only, no quotes.",
+                }],
+            )
+            title = resp.content[0].text.strip().strip('"\'')
+        except Exception:
+            title = f"Test ticket — {company_name}"
+    else:
+        title = "General Support Request"
+
+    console.print(f"  [dim]Creating ticket for {company_name}: '{title}'...[/dim]")
+    ticket = at.create_ticket(title=title, company_id=company_id)
+    if ticket:
+        num = ticket.get("ticketNumber") or ticket.get("id", "?")
+        msg = f"Done — ticket #{num} created for {company_name}. Subject: '{title}'."
+        console.print(f"  [green]ARTY:[/green] {msg}")
+        voice.speak(msg)
+    else:
+        msg = "I hit an error creating the ticket — check the Autotask API credentials and integration code."
+        console.print(f"  [red]ARTY:[/red] {msg}")
+        voice.speak(msg)
 
 
 def _list_companies(ticket_brain, voice):
@@ -734,6 +807,11 @@ def run(start_text_mode: bool = False):
                 console.print(f"  [dim cyan][ROUTE] is_action={_is_computer_action(user_input)}  last_goal={bool(last_action_goal)}[/dim cyan]")
 
             # ── Autotask intents (checked before generic computer-action) ─────────
+            _create_company = _ticket_create_intent(user_input)
+            if _create_company is not None:
+                _handle_create_ticket(user_input, _create_company, ticket_brain, brain, voice)
+                continue
+
             _at_intent, _at_value = _autotask_intent(user_input)
             if _at_intent == "list_companies":
                 _list_companies(ticket_brain, voice)
