@@ -143,13 +143,27 @@ class WebAgent:
 
         console.print(f"\n  [cyan]WebAgent: {goal[:80]}[/cyan]")
 
-        # Navigate to the target URL if we know it
-        if url:
+        # Detect "already open on screen" — skip navigation, work with current page
+        _already_open_hints = [
+            "already open", "it's open", "on my screen", "on screen",
+            "already logged in", "its open", "already there", "on the screen",
+        ]
+        _skip_nav = any(h in goal.lower() for h in _already_open_hints)
+
+        if _skip_nav:
+            console.print("  [dim]  → app already open — skipping navigation[/dim]")
+        elif url:
             console.print(f"  [dim]  → navigating to {url}[/dim]")
             browser.navigate(url)
             time.sleep(2)
+            # Bail out if we landed on a login page — can't proceed without existing session
+            page_title = browser.get_page_title().lower()
+            if any(w in page_title for w in ("login", "sign in", "log in", "authenticate")):
+                console.print("  [yellow]WebAgent: hit a login page — the app needs an existing logged-in session.[/yellow]")
+                console.print("  [dim]  Hint: add AUTOTASK_ZONE_URL to .env pointing to your already-authenticated tab URL.[/dim]")
+                return False
         else:
-            console.print(f"  [dim]  → no URL for '{app}' — working with current page[/dim]")
+            console.print(f"  [dim]  → no URL configured for '{app}' — working with current page[/dim]")
 
         action_history = []
 

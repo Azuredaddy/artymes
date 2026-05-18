@@ -114,6 +114,15 @@ WATCH_PROMPTS = [
 ]
 
 
+def _capture_forced_monitor(eyes, monitor_idx: int) -> tuple:
+    """Capture a specific monitor by index and return the same 5-tuple as capture_with_focus."""
+    monitors = eyes.sct.monitors
+    idx = min(monitor_idx, len(monitors) - 1)
+    m = monitors[idx]
+    b64, xs, ys = eyes._grab_with_scale(m)
+    return b64, m["left"], m["top"], xs, ys
+
+
 class TrainingSession:
     def __init__(self, topic: str, eyes, hands, voice):
         self.topic = topic
@@ -146,8 +155,14 @@ class TrainingSession:
 
         action_history = []
 
-        # Pre-focus: try to bring the most relevant window to front before the
-        # first screenshot, so we don't capture the terminal covering everything.
+        # Detect explicit monitor/display number in task e.g. "display 3", "monitor 2"
+        import re as _re
+        _mon_match = _re.search(r'\b(?:display|monitor|screen)\s+(\d)\b', task_desc, _re.IGNORECASE)
+        forced_monitor = int(_mon_match.group(1)) if _mon_match else None
+        if forced_monitor:
+            console.print(f"  [dim magenta]  Targeting monitor {forced_monitor}[/dim magenta]")
+
+        # Pre-focus: bring the most relevant window to front before first screenshot
         _APP_KEYWORDS = {
             "edge": "Edge", "chrome": "Chrome", "browser": "Edge",
             "autotask": "Autotask", "outlook": "Outlook", "teams": "Teams",
@@ -159,7 +174,7 @@ class TrainingSession:
             if kw in task_lower:
                 focus_target = title
                 break
-        if focus_target:
+        if focus_target and not forced_monitor:
             try:
                 from hands.win_control import win32_focus
                 win32_focus(focus_target)
@@ -177,6 +192,12 @@ class TrainingSession:
                     f"  {i+1}. {a.get('narration', a.get('action', '?'))}"
                     for i, a in enumerate(action_history)
                 )
+
+            # Capture the right monitor
+            if forced_monitor:
+                screenshot_b64, x_off, y_off, x_scale, y_scale = _capture_forced_monitor(self.eyes, forced_monitor)
+            else:
+                screenshot_b64, x_off, y_off, x_scale, y_scale = self.eyes.capture_with_focus(focus_target)
 
             win_ctx = get_active_window_context()
             win_line = f"\n{win_ctx}" if win_ctx else ""

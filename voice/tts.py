@@ -11,6 +11,7 @@ def _edge_speak(text: str, voice: str = "en-AU-WilliamNeural"):
     try:
         import edge_tts
         import av
+        import threading
 
         async def _generate():
             communicate = edge_tts.Communicate(text, voice)
@@ -20,7 +21,26 @@ def _edge_speak(text: str, voice: str = "en-AU-WilliamNeural"):
                     mp3_data += chunk["data"]
             return mp3_data
 
-        mp3_data = asyncio.run(_generate())
+        # Run in a dedicated thread with its own event loop so we never clash
+        # with Playwright's loop (which causes "asyncio.run() cannot be called
+        # from a running event loop")
+        result = [None]
+        exc    = [None]
+        def _run():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result[0] = loop.run_until_complete(_generate())
+            except Exception as e:
+                exc[0] = e
+            finally:
+                loop.close()
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        t.join(timeout=15)
+        if exc[0]:
+            raise exc[0]
+        mp3_data = result[0]
         if not mp3_data:
             raise RuntimeError("edge-tts returned no audio")
 
