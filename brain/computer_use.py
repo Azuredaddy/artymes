@@ -46,7 +46,16 @@ HOW TO WORK:
 - For small icons (plus buttons, close buttons, checkboxes) be very precise with coordinates.
   Click the exact centre of the icon — not near it.
 - If a click doesn't work, try a slightly different coordinate rather than repeating the same one.
-- When the task is fully complete, say so and stop using tools."""
+- When the task is fully complete, say so and stop using tools.
+
+OUTLOOK EMAIL — follow this exact sequence:
+1. hotkey ctrl+n targeting Outlook window → new message opens
+2. Type recipient in To field
+3. Press Tab → moves to Subject (ALWAYS tab after To, never type in To twice)
+4. Type subject
+5. Press Tab → moves to Body
+6. Type body
+7. Leave as draft (do not send unless told to)"""
 
 
 class ArtyComputerUse:

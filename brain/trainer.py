@@ -80,13 +80,19 @@ Coordinate-based (LAST RESORT — only if all above fail):
 - wait: {"seconds": float}
 - done: {}  — ONLY after ALL required actions are complete
 
-━━━ OUTLOOK SHORTCUTS ━━━
-- New email:  hotkey {"keys": ["ctrl","n"], "window": "Outlook"}
-- Reply:      hotkey {"keys": ["ctrl","r"], "window": "Outlook"}
-- Send:       hotkey {"keys": ["ctrl","enter"], "window": "Message"}
-- To field:   direct_type {"app": "Message", "text": "email@address"}
-- Subject:    press tab, then direct_type {"app": "Message", "text": "subject"}
-- Body:       press tab, then direct_type {"app": "Message", "text": "body"}
+━━━ OUTLOOK EMAIL COMPOSITION — follow this EXACT sequence ━━━
+Step 1: hotkey {"keys": ["ctrl","n"], "window": "Outlook"}   ← opens new message
+Step 2: direct_type {"app": "Message", "text": "recipient name or email"}
+Step 3: press {"key": "tab"}                                  ← move to Subject (ALWAYS do this after To)
+Step 4: direct_type {"app": "Message", "text": "subject text"}
+Step 5: press {"key": "tab"}                                  ← move to Body
+Step 6: direct_type {"app": "Message", "text": "body text"}
+Step 7: done {}   ← leave open as draft, do NOT send unless told to
+
+CRITICAL: After typing in To, ALWAYS press Tab next — never type in To twice.
+If you see an autocomplete dropdown, press Enter to accept it, then Tab to Subject.
+- Reply:  hotkey {"keys": ["ctrl","r"], "window": "Outlook"}
+- Send:   hotkey {"keys": ["ctrl","enter"], "window": "Message"}
 
 ━━━ RULES ━━━
 - Web content in browser → browser_* actions always
@@ -139,7 +145,27 @@ class TrainingSession:
         console.print(f"\n  [yellow]ARTY attempting: {self.topic}[/yellow]")
 
         action_history = []
-        focus_target = None  # tracks last focused/typed-into app for per-monitor capture
+
+        # Pre-focus: try to bring the most relevant window to front before the
+        # first screenshot, so we don't capture the terminal covering everything.
+        _APP_KEYWORDS = {
+            "edge": "Edge", "chrome": "Chrome", "browser": "Edge",
+            "autotask": "Autotask", "outlook": "Outlook", "teams": "Teams",
+            "8x8": "8x8", "notepad": "Notepad", "excel": "Excel", "word": "Word",
+        }
+        focus_target = None
+        task_lower = task_desc.lower()
+        for kw, title in _APP_KEYWORDS.items():
+            if kw in task_lower:
+                focus_target = title
+                break
+        if focus_target:
+            try:
+                from hands.win_control import win32_focus
+                win32_focus(focus_target)
+                time.sleep(0.5)
+            except Exception:
+                pass
 
         for step_num in range(max_steps):
             screenshot_b64, x_off, y_off, x_scale, y_scale = self.eyes.capture_with_focus(focus_target)

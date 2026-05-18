@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 
-ARTY_VERSION = "1.6.8"
+ARTY_VERSION = "1.6.9"
 VERSION = ARTY_VERSION  # alias used by check_setup.py
 
 # Always load .env from the same folder as this file, regardless of working directory
@@ -18,8 +18,8 @@ MEMORY_DB_PATH = os.getenv("MEMORY_DB_PATH", "./data/arty_memory.db")
 CHROMA_PATH = os.getenv("CHROMA_PATH", "./data/chroma")
 
 CLAUDE_MODEL = "claude-opus-4-7"
-# Computer Use API only supports specific models — claude-opus-4-7 does not support it yet
-COMPUTER_USE_MODEL = "claude-sonnet-4-5-20251022"
+# Computer Use API only supports specific models — use claude-3-5-sonnet which is confirmed working
+COMPUTER_USE_MODEL = "claude-3-5-sonnet-20241022"
 WHISPER_MODEL = "base"
 
 CONVERSATION_WINDOW = 20
