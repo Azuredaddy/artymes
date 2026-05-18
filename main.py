@@ -171,14 +171,28 @@ def check_for_update(current_version: str, url: str) -> str | None:
     return None
 
 
+def _version_tuple(v: str) -> tuple:
+    """Convert '1.6.5' → (1, 6, 5) for numeric comparison."""
+    try:
+        return tuple(int(x) for x in v.strip().split("."))
+    except Exception:
+        return (0,)
+
+
 def auto_update(current_version: str, update_url: str):
     """Check GitHub for a newer version. If found, git pull + pip install + restart."""
     import subprocess
+    import time
 
     console.print("[dim]Checking for updates...[/dim]", end=" ")
     latest = check_for_update(current_version, update_url)
     if not latest:
         console.print("[dim]Up to date.[/dim]")
+        return
+
+    # Only update if the remote version is strictly newer
+    if _version_tuple(latest) <= _version_tuple(current_version):
+        console.print(f"[dim]Up to date (remote: v{latest}).[/dim]")
         return
 
     console.print(f"\n  [yellow]New version available: v{latest}  (you have v{current_version})[/yellow]")
