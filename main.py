@@ -125,6 +125,7 @@ COMMANDS = {
     "/mic":     "Switch back to mic input",
     "/version": "Show ARTY version and check for updates",
     "/test":    "Test typing: /test <app title> | <text to type>",
+    "/testmouse": "Verify pyautogui mouse control works",
     "/quit":    "Shut down ARTY",
 }
 
@@ -633,7 +634,7 @@ def run(start_text_mode: bool = False):
     if latest:
         console.print(f"  [yellow]Update available: v{latest} — run the installer to upgrade.[/yellow]\n")
 
-    from config import ANTHROPIC_API_KEY, ENV_PATH
+    from config import ANTHROPIC_API_KEY, ENV_PATH, AUTOTASK_USE_MOUSE
     if not ANTHROPIC_API_KEY or not ANTHROPIC_API_KEY.startswith("sk-"):
         console.print(Panel(
             "  [red]ANTHROPIC_API_KEY is missing.[/red]\n\n"
@@ -783,6 +784,30 @@ def run(start_text_mode: bool = False):
                             time.sleep(0.3)
                             pyautogui.hotkey("ctrl", "v")
                             console.print("  Clipboard: [green]pasted[/green]")
+                elif cmd == "/testmouse":
+                    import pyautogui
+                    w, h = pyautogui.size()
+                    cx, cy = w // 2, h // 2
+                    start_x, start_y = pyautogui.position()
+                    console.print(f"\n  [yellow]── /testmouse ──[/yellow]")
+                    console.print(f"  Screen size  : {w}×{h}")
+                    console.print(f"  Current pos  : ({start_x}, {start_y})")
+                    console.print(f"  Moving to    : ({cx}, {cy})")
+                    try:
+                        pyautogui.moveTo(cx, cy, duration=0.5)
+                        time.sleep(0.3)
+                        new_x, new_y = pyautogui.position()
+                        moved = abs(new_x - cx) < 5 and abs(new_y - cy) < 5
+                        if moved:
+                            console.print("  Result       : [green]Mouse moved OK[/green]")
+                            voice.speak("Mouse is working fine.")
+                        else:
+                            console.print(f"  Result       : [red]Mouse did NOT move (still at {new_x},{new_y})[/red]")
+                            voice.speak("Mouse did not move — check pyautogui.")
+                        pyautogui.moveTo(start_x, start_y, duration=0.3)
+                    except Exception as e:
+                        console.print(f"  [red]pyautogui error: {e}[/red]")
+                        voice.speak(f"pyautogui threw an error: {str(e)[:60]}")
                 elif cmd == "/type":
                     use_mic = False
                     console.print("  [dim]Switched to keyboard input.[/dim]")
@@ -807,21 +832,23 @@ def run(start_text_mode: bool = False):
                 console.print(f"  [dim cyan][ROUTE] is_action={_is_computer_action(user_input)}  last_goal={bool(last_action_goal)}[/dim cyan]")
 
             # ── Autotask intents (checked before generic computer-action) ─────────
-            _create_company = _ticket_create_intent(user_input)
-            if _create_company is not None:
-                _handle_create_ticket(user_input, _create_company, ticket_brain, brain, voice)
-                continue
+            # Skip API routes when mouse mode is on — let vision loop handle it
+            if not AUTOTASK_USE_MOUSE:
+                _create_company = _ticket_create_intent(user_input)
+                if _create_company is not None:
+                    _handle_create_ticket(user_input, _create_company, ticket_brain, brain, voice)
+                    continue
 
-            _at_intent, _at_value = _autotask_intent(user_input)
-            if _at_intent == "list_companies":
-                _list_companies(ticket_brain, voice)
-                continue
-            elif _at_intent == "company_tickets":
-                _search_tickets_for_company(_at_value, ticket_brain, voice)
-                continue
-            elif _at_intent == "list_tickets":
-                _show_tickets(ticket_brain, voice)
-                continue
+                _at_intent, _at_value = _autotask_intent(user_input)
+                if _at_intent == "list_companies":
+                    _list_companies(ticket_brain, voice)
+                    continue
+                elif _at_intent == "company_tickets":
+                    _search_tickets_for_company(_at_value, ticket_brain, voice)
+                    continue
+                elif _at_intent == "list_tickets":
+                    _show_tickets(ticket_brain, voice)
+                    continue
 
             # ── Email composition via Outlook COM ─────────────────────────────────
             _recip = _email_intent(user_input)

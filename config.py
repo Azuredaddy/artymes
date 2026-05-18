@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 
-ARTY_VERSION = "1.6.0"
+ARTY_VERSION = "1.6.1"
 VERSION = ARTY_VERSION  # alias used by check_setup.py
 
 # Always load .env from the same folder as this file, regardless of working directory
@@ -25,6 +25,9 @@ CONVERSATION_WINDOW = 20
 UNCERTAINTY_THRESHOLD = 0.4
 
 GITHUB_VERSION_URL = "https://raw.githubusercontent.com/Azuredaddy/artymes/main/version.txt"
+
+# Set to true to bypass Autotask API routes and let ARTY use the mouse/browser instead
+AUTOTASK_USE_MOUSE = os.getenv("AUTOTASK_USE_MOUSE", "false").lower() == "true"
 
 # Autotask PSA
 AUTOTASK_API_USER        = os.getenv("AUTOTASK_API_USER", "").strip()
