@@ -189,7 +189,7 @@ def auto_update(current_version: str, update_url: str):
     # Pull latest code
     try:
         result = subprocess.run(
-            ["git", "pull"],
+            ["git", "pull", "origin", "main"],
             cwd=script_dir,
             capture_output=True, text=True, timeout=30,
         )
