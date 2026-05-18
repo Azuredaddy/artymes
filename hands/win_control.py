@@ -148,6 +148,61 @@ def wm_char_type_into(title_contains: str, text: str, new_line_first: bool = Fal
     return True
 
 
+# ── Active window detection ───────────────────────────────────────────────────
+
+def get_active_window_title() -> str:
+    """Return the title of the currently focused window, or '' if unavailable."""
+    if _HAS_WIN32:
+        try:
+            hwnd = win32gui.GetForegroundWindow()
+            title = win32gui.GetWindowText(hwnd)
+            if title:
+                return title
+        except Exception:
+            pass
+    # pygetwindow fallback
+    try:
+        import pygetwindow as gw
+        w = gw.getActiveWindow()
+        if w and w.title:
+            return w.title
+    except Exception:
+        pass
+    return ""
+
+
+def get_active_window_context() -> str:
+    """Return a one-line context string ready to inject into Claude prompts.
+    e.g. 'ACTIVE WINDOW: "Inbox - william@... - Outlook" (Microsoft Outlook)'"""
+    title = get_active_window_title()
+    if not title:
+        return ""
+
+    # Map common title fragments to friendly app names
+    _APP_HINTS = [
+        ("outlook", "Microsoft Outlook"),
+        ("edge", "Microsoft Edge"),
+        ("chrome", "Google Chrome"),
+        ("firefox", "Firefox"),
+        ("teams", "Microsoft Teams"),
+        ("8x8", "8x8 Work"),
+        ("notepad", "Notepad"),
+        ("excel", "Microsoft Excel"),
+        ("word", "Microsoft Word"),
+        ("autotask", "Autotask"),
+        ("powershell", "PowerShell"),
+        ("cmd.exe", "Command Prompt"),
+        ("explorer", "File Explorer"),
+    ]
+    app_hint = next(
+        (hint for frag, hint in _APP_HINTS if frag in title.lower()),
+        ""
+    )
+    if app_hint:
+        return f'ACTIVE WINDOW: "{title}" ({app_hint})'
+    return f'ACTIVE WINDOW: "{title}"'
+
+
 # ── Public helpers ────────────────────────────────────────────────────────────
 
 def win32_focus(title_contains: str) -> bool:

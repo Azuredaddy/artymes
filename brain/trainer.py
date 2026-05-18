@@ -7,6 +7,14 @@ import anthropic
 from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 from rich.console import Console
 
+try:
+    from hands.win_control import get_active_window_context
+    _HAS_WIN_CTX = True
+except Exception:
+    _HAS_WIN_CTX = False
+    def get_active_window_context() -> str:
+        return ""
+
 console = Console()
 
 ACTION_SYSTEM_PROMPT = """You are ARTY, an AI assistant controlling a Windows computer. You are given a screenshot and a task to complete.
@@ -144,6 +152,11 @@ class TrainingSession:
                     for i, a in enumerate(action_history)
                 )
 
+            win_ctx = get_active_window_context()
+            win_line = f"\n{win_ctx}" if win_ctx else ""
+            if win_ctx:
+                console.print(f"  [dim magenta]  {win_ctx}[/dim magenta]")
+
             try:
                 response = client.messages.create(
                     model=CLAUDE_MODEL,
@@ -162,7 +175,7 @@ class TrainingSession:
                             },
                             {
                                 "type": "text",
-                                "text": f"Task: {task_desc}{history_text}\n\nStep {step_num + 1} — what is the NEXT action?",
+                                "text": f"{win_line}\nTask: {task_desc}{history_text}\n\nStep {step_num + 1} — what is the NEXT action?",
                             },
                         ],
                     }],

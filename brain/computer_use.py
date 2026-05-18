@@ -8,6 +8,12 @@ import time
 import anthropic
 from rich.console import Console
 
+try:
+    from hands.win_control import get_active_window_context
+except Exception:
+    def get_active_window_context() -> str:
+        return ""
+
 console = Console()
 
 CU_BETA        = "computer-use-2025-01-24"
@@ -132,6 +138,9 @@ class ArtyComputerUse:
             "display_height_px": img_h,
         }]
 
+        win_ctx = get_active_window_context()
+        initial_text = f"{win_ctx}\n{goal}" if win_ctx else goal
+
         messages = [{
             "role": "user",
             "content": [
@@ -139,7 +148,7 @@ class ArtyComputerUse:
                     "type": "image",
                     "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
                 },
-                {"type": "text", "text": goal},
+                {"type": "text", "text": initial_text},
             ],
         }]
 
@@ -190,21 +199,24 @@ class ArtyComputerUse:
 
                 if action == "screenshot":
                     b64, img_w, img_h = self._screenshot_with_scale()
-                    # Refresh tool dimensions in case resolution changed
                     tools[0]["display_width_px"]  = img_w
                     tools[0]["display_height_px"] = img_h
-                    content = [{"type": "image", "source": {
-                        "type": "base64", "media_type": "image/jpeg", "data": b64
-                    }}]
+                    win_ctx = get_active_window_context()
+                    content = [
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
+                        *([{"type": "text", "text": win_ctx}] if win_ctx else []),
+                    ]
                 else:
                     self._execute(action, block.input, hint=goal)
                     time.sleep(0.7)
                     b64, img_w, img_h = self._screenshot_with_scale()
                     tools[0]["display_width_px"]  = img_w
                     tools[0]["display_height_px"] = img_h
-                    content = [{"type": "image", "source": {
-                        "type": "base64", "media_type": "image/jpeg", "data": b64
-                    }}]
+                    win_ctx = get_active_window_context()
+                    content = [
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
+                        *([{"type": "text", "text": win_ctx}] if win_ctx else []),
+                    ]
 
                 tool_results.append({
                     "type": "tool_result",
