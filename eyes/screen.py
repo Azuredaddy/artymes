@@ -84,6 +84,30 @@ class ArtyEyes:
         b64, xs, ys = self._grab_with_scale(primary)
         return b64, primary["left"], primary["top"], xs, ys
 
+    def capture_all_native(self) -> tuple:
+        """Capture ALL monitors as one combined screenshot.
+
+        Returns (b64, img_w, img_h, phys_w, phys_h, phys_left, phys_top).
+        phys_* describe the virtual-screen bounding box in physical pixels.
+        Coordinate math:  x_phys = phys_left + x_img * (phys_w / img_w)
+        Then convert physical → logical by dividing by the DPI scale factor."""
+        monitor = self.sct.monitors[0]           # combined virtual screen
+        shot = self.sct.grab(monitor)
+        img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+        phys_w, phys_h = img.width, img.height
+        phys_left = monitor["left"]
+        phys_top  = monitor["top"]
+
+        if phys_w > 1366:
+            ratio = 1366 / phys_w
+            img = img.resize((1366, int(phys_h * ratio)), Image.LANCZOS)
+
+        img_w, img_h = img.size
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=80)
+        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        return b64, img_w, img_h, phys_w, phys_h, phys_left, phys_top
+
     def capture_primary_native(self) -> tuple:
         """Capture primary monitor. Returns (b64, img_w, img_h, x_scale, y_scale).
 

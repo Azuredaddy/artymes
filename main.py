@@ -1025,9 +1025,9 @@ def run(start_text_mode: bool = False):
                         f"Body: {_email_draft['body']}. "
                         f"Leave it open as a draft for the user to review."
                     )
-                    success = trainer.execute_task(goal)
+                    success = computer_use.execute_task(goal)
                     if success:
-                        msg = f"Done via keyboard — email draft is open in Outlook."
+                        msg = "Email draft is open in Outlook."
                     else:
                         msg = "Couldn't open Outlook. Is it running? Try opening it manually first."
                     console.print(f"  [green]ARTY:[/green] {msg}")
@@ -1041,18 +1041,8 @@ def run(start_text_mode: bool = False):
                 ack = random.choice(["On it.", "Sure, give me a sec.", "Right, on it.", "Yep, doing that now."])
                 console.print(f"  [green]ARTY:[/green] {ack}")
                 voice.speak(ack)
-                # Tier 1: WebAgent — Playwright DOM control for web tasks (most reliable)
-                if web_agent.can_handle(user_input):
-                    console.print("  [dim cyan]  → WebAgent (browser DOM)[/dim cyan]")
-                    success = web_agent.execute_task(user_input)
-                else:
-                    # Tier 2: Anthropic Computer Use API
-                    console.print("  [dim cyan]  → Computer Use API[/dim cyan]")
-                    success = computer_use.execute_task(user_input)
-                # Tier 3: trainer vision loop fallback
-                if not success:
-                    console.print("  [dim yellow]  → vision loop fallback[/dim yellow]")
-                    success = trainer.execute_task(user_input)
+                console.print("  [dim cyan]  → Computer Use[/dim cyan]")
+                success = computer_use.execute_task(user_input)
                 if not success:
                     offer = random.choice([
                         "I got stuck on that. Want to show me how and I'll learn it?",
@@ -1073,12 +1063,7 @@ def run(start_text_mode: bool = False):
                 ack = random.choice(["Right, trying again.", "On it, another go.", "Let me try that again."])
                 console.print(f"  [green]ARTY:[/green] {ack}")
                 voice.speak(ack)
-                if web_agent.can_handle(last_action_goal):
-                    success = web_agent.execute_task(last_action_goal)
-                else:
-                    success = computer_use.execute_task(last_action_goal)
-                if not success:
-                    success = trainer.execute_task(last_action_goal)
+                success = computer_use.execute_task(last_action_goal)
                 if success:
                     last_action_goal = None
                 else:
