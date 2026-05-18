@@ -171,6 +171,60 @@ def check_for_update(current_version: str, url: str) -> str | None:
     return None
 
 
+def auto_update(current_version: str, update_url: str):
+    """Check GitHub for a newer version. If found, git pull + pip install + restart."""
+    import subprocess
+
+    console.print("[dim]Checking for updates...[/dim]", end=" ")
+    latest = check_for_update(current_version, update_url)
+    if not latest:
+        console.print("[dim]Up to date.[/dim]")
+        return
+
+    console.print(f"\n  [yellow]New version available: v{latest}  (you have v{current_version})[/yellow]")
+    console.print("  [cyan]Updating now...[/cyan]")
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Pull latest code
+    try:
+        result = subprocess.run(
+            ["git", "pull"],
+            cwd=script_dir,
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            console.print(f"  [red]git pull failed — update skipped.[/red]")
+            console.print(f"  [dim]{result.stderr.strip()[:200]}[/dim]")
+            return
+        console.print("  [green]Code updated.[/green]")
+    except FileNotFoundError:
+        console.print("  [red]git not found — install Git for Windows and re-run.[/red]")
+        return
+    except Exception as e:
+        console.print(f"  [red]git pull error: {e}[/red]")
+        return
+
+    # Install any new/changed dependencies
+    req_path = os.path.join(script_dir, "requirements.txt")
+    if os.path.exists(req_path):
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-r", req_path, "--quiet", "--disable-pip-version-check"],
+                timeout=120,
+            )
+            console.print("  [green]Dependencies checked.[/green]")
+        except Exception as e:
+            console.print(f"  [yellow]pip install warning: {e}[/yellow]")
+
+    console.print(f"\n  [bold green]Restarting as v{latest}...[/bold green]\n")
+    time.sleep(1)
+
+    # Spawn new process then exit cleanly (more reliable than os.execv on Windows)
+    subprocess.Popen([sys.executable] + sys.argv)
+    sys.exit(0)
+
+
 def print_banner(version: str):
     console.print(Panel(make_banner(version), style="bold cyan", expand=False))
     console.print()
@@ -628,11 +682,9 @@ def run(start_text_mode: bool = False):
     from config import ARTY_VERSION, GITHUB_VERSION_URL
     print_banner(ARTY_VERSION)
 
-    console.print("[dim]Initialising ARTY brain...[/dim]")
+    auto_update(ARTY_VERSION, GITHUB_VERSION_URL)
 
-    latest = check_for_update(ARTY_VERSION, GITHUB_VERSION_URL)
-    if latest:
-        console.print(f"  [yellow]Update available: v{latest} — run the installer to upgrade.[/yellow]\n")
+    console.print("[dim]Initialising ARTY brain...[/dim]")
 
     from config import ANTHROPIC_API_KEY, ENV_PATH, AUTOTASK_USE_MOUSE
     if not ANTHROPIC_API_KEY or not ANTHROPIC_API_KEY.startswith("sk-"):
