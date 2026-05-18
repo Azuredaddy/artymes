@@ -789,6 +789,18 @@ def run(start_text_mode: bool = False):
                             time.sleep(0.3)
                             pyautogui.hotkey("ctrl", "v")
                             console.print("  Clipboard: [green]pasted[/green]")
+                elif cmd == "/testautotask":
+                    from brain.autotask import ArtyAutotask
+                    import config as _cfg
+                    console.print(f"  USER : {repr(_cfg.AUTOTASK_API_USER[:6]+'...' if _cfg.AUTOTASK_API_USER else 'EMPTY')}")
+                    console.print(f"  SECRET: {'set' if _cfg.AUTOTASK_API_SECRET else 'EMPTY'}")
+                    console.print(f"  CODE  : {repr(_cfg.AUTOTASK_INTEGRATION_CODE[:6]+'...' if _cfg.AUTOTASK_INTEGRATION_CODE else 'EMPTY')}")
+                    try:
+                        at = ArtyAutotask()
+                        result = at.test_connection()
+                        console.print(f"  Result: [green]{result}[/green]" if result.startswith("OK") else f"  Result: [red]{result}[/red]")
+                    except Exception as e:
+                        console.print(f"  [red]Init failed: {e}[/red]")
                 elif cmd == "/testmouse":
                     import pyautogui
                     w, h = pyautogui.size()

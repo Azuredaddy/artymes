@@ -86,14 +86,39 @@ class ArtyAutotask:
     # ── HTTP helpers ──────────────────────────────────────────────────────────
 
     def _headers(self) -> dict:
-        h = {
-            "UserName": self.user,
-            "Secret":   self.secret,
-            "Content-Type": "application/json",
+        return {
+            "UserName":           self.user,
+            "Secret":             self.secret,
+            "ApiIntegrationCode": self.int_code,
+            "Content-Type":       "application/json",
         }
-        if self.int_code:
-            h["ApiIntegrationCode"] = self.int_code
-        return h
+
+    def test_connection(self) -> str:
+        """Quick connectivity + auth check. Returns a status string."""
+        if not self.user:
+            return "AUTOTASK_API_USER is not set in .env"
+        if not self.secret:
+            return "AUTOTASK_API_SECRET is not set in .env"
+        if not self.int_code:
+            return "AUTOTASK_INTEGRATION_CODE is not set in .env"
+        try:
+            # Tickets/query with limit 1 — minimal request
+            body = {"filter": [{"op": "and", "items": [
+                {"field": "status", "op": "noteq", "value": 5}
+            ]}]}
+            r = requests.post(
+                self._url("Tickets/query"),
+                headers=self._headers(),
+                json=body,
+                params={"MaxRecords": 1},
+                timeout=10,
+            )
+            if r.ok:
+                count = len(r.json().get("items", []))
+                return f"OK — connected to {self.base} ({count} ticket(s) returned)"
+            return f"HTTP {r.status_code}: {r.text[:200]}"
+        except Exception as e:
+            return f"Connection error: {e}"
 
     def _url(self, path: str) -> str:
         return f"{self.base}/{path}"
